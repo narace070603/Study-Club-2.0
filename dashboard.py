@@ -1,10 +1,20 @@
-from pathlib import Path
-from zipfile import ZipFile, BadZipFile
+"""
+NusaCommerce • Vibe Dashboard
+Dashboard Streamlit untuk menjawab 3 pertanyaan bisnis + analisis tambahan ala Gen Z.
+
+Jalankan:  streamlit run app.py
+Letakkan data.zip (atau CSV hasil cleaning) di folder yang sama, atau unggah lewat sidebar.
+"""
+import calendar
 import io
 import re
-from html import escape as html_escape
-from urllib.parse import quote
+from collections import Counter
+from html import escape as esc
+from itertools import combinations
+from pathlib import Path
+from zipfile import BadZipFile, ZipFile
 
+import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -15,291 +25,143 @@ from plotly.subplots import make_subplots
 # KONFIGURASI HALAMAN
 # =========================
 st.set_page_config(
-    page_title="E-Commerce Dashboard",
+    page_title="NusaCommerce • Vibe Dashboard",
+    page_icon="🛍️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-BLUE = "#2F5BEA"
-BLUE_LIGHT = "#BFD3FF"
-YELLOW = "#F5B83D"
-GREEN = "#16A34A"
-RED = "#E5484D"
-INK = "#1E293B"
-MUTED = "#475569"
-PALETTE = [BLUE, YELLOW, "#10B981", "#8B5CF6", "#F97316", "#06B6D4", "#EC4899", "#84CC16"]
+VIOLET = "#7C3AED"
+PINK = "#EC4899"
+LIME = "#65A30D"
+CYAN = "#06B6D4"
+ORANGE = "#FB923C"
+RED = "#EF4444"
+INK = "#1F1B3A"
+MUTED = "#5B5780"
+PALETTE = [VIOLET, PINK, CYAN, ORANGE, "#10B981", "#6366F1", "#F43F5E", "#84CC16"]
+MONTHS_ID = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+DAYS_ID = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
+MEDALS = ["👑", "🥈", "🥉"]
+BADGES = ["Main Character", "Bestie Setia", "Si Paling Laku"]
+GROUP_ORDER = ["Selesai", "Diterima (masa retur)", "Dalam pengiriman", "Lainnya", "Batal"]
+
 
 # =========================
 # STYLE
 # =========================
+CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+html, body, .stApp, .stMarkdown, p, label, button, input, textarea, h1, h2, h3, h4 {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.stApp { background: linear-gradient(135deg, #FFF1F9 0%, #F1ECFF 48%, #E3F6FF 100%); }
+header[data-testid="stHeader"] { background: transparent; }
+.block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1500px; }
+
+/* teks area utama */
+[data-testid="stMain"] label p { color: __INK__; font-weight: 700; font-size: 13px; }
+[data-testid="stMain"] [data-testid="stCaptionContainer"] * { color: __MUTED__; }
+
+/* kartu (st.container border) */
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: rgba(255,255,255,.86);
+    border: 1px solid #E8E1FA !important;
+    border-radius: 20px !important;
+    box-shadow: 0 8px 26px rgba(76,29,149,.08);
+}
+.card-title { font-size: 16px; font-weight: 800; color: __INK__; margin: 2px 0 0 0; }
+.card-sub { font-size: 12.5px; color: __MUTED__; font-weight: 500; margin: 2px 0 10px 0; }
+
+/* sidebar */
+[data-testid="stSidebar"] { background: linear-gradient(180deg, #2A1B5E 0%, #1F1B3A 100%); border-right: none; }
+[data-testid="stSidebar"] * { color: #FFFFFF; }
+[data-testid="stSidebar"] [data-baseweb="select"] * { color: __INK__ !important; }
+[data-testid="stSidebar"] [data-baseweb="tag"] * { color: #FFFFFF !important; }
+[data-testid="stSidebar"] [data-testid="stFileUploader"] section { background: rgba(255,255,255,.12); }
+[data-testid="stSidebar"] [data-testid="stFileUploader"] small,
+[data-testid="stSidebar"] [data-testid="stFileUploader"] span,
+[data-testid="stSidebar"] [data-testid="stFileUploader"] button { color: __INK__ !important; }
+.brand { display:flex; align-items:center; gap:12px; padding:10px 12px; background: rgba(255,255,255,.12);
+         border-radius:16px; margin-bottom:14px; }
+.brand-avatar { width:42px; height:42px; border-radius:14px; background: linear-gradient(135deg,#EC4899,#F59E0B);
+                display:flex; align-items:center; justify-content:center; font-size:22px; flex-shrink:0; }
+.brand-name { font-weight:800; font-size:14px; line-height:1.2; }
+.brand-role { font-size:11px; opacity:.85; }
+.side-label { font-size:11px; text-transform:uppercase; letter-spacing:.8px; opacity:.9;
+              margin:18px 0 6px 2px; font-weight:800; }
+[data-testid="stSidebar"] div[role="radiogroup"] { gap: 4px; }
+[data-testid="stSidebar"] div[role="radiogroup"] label { padding:10px 14px; border-radius:12px; width:100%;
+    cursor:pointer; transition: background .15s; }
+[data-testid="stSidebar"] div[role="radiogroup"] label:hover { background: rgba(255,255,255,.12); }
+[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child { display:none; }
+[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+    background: linear-gradient(90deg, #EC4899, #8B5CF6); }
+[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) * { font-weight: 800; }
+
+/* judul halaman */
+.page-title { font-size: 32px; font-weight: 800; letter-spacing: -.5px; margin: 0; line-height: 1.2;
+    background: linear-gradient(90deg, #7C3AED, #EC4899); -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent; background-clip: text; width: fit-content; }
+.page-sub { color: __MUTED__; font-size: 14px; font-weight: 500; margin: 4px 0 18px 0; }
+
+/* KPI */
+.kpi { background: rgba(255,255,255,.9); border: 1px solid #E8E1FA; border-radius: 20px; padding: 14px 16px;
+       box-shadow: 0 8px 26px rgba(76,29,149,.08); display:flex; gap:12px; align-items:center; min-height: 96px; }
+.kpi-icon { width:46px; height:46px; border-radius:14px; display:flex; align-items:center; justify-content:center;
+            font-size:22px; flex-shrink:0; }
+.kpi-body { min-width:0; flex:1; }
+.kpi-title { font-size:12px; color:__MUTED__; font-weight:700; }
+.kpi-value { font-size:22px; font-weight:800; color:__INK__; line-height:1.2; overflow-wrap:anywhere; }
+.kpi-sub { font-size:11.5px; font-weight:700; color:__MUTED__; }
+.up { color:#16A34A; } .down { color:#DC2626; } .flat { color:__MUTED__; }
+
+/* kartu jawaban */
+.ans { border-radius: 20px; padding: 16px 18px; min-height: 190px; color: #fff; display:flex; flex-direction:column;
+       gap:6px; box-shadow: 0 10px 28px rgba(76,29,149,.16); }
+.ans-q { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing:.6px; opacity:.92; }
+.ans-a { font-size: 21px; font-weight: 800; line-height: 1.2; overflow-wrap:anywhere; }
+.ans-d { font-size: 13px; font-weight: 500; line-height: 1.45; opacity: .96; overflow-wrap:anywhere; }
+.g1 { background: linear-gradient(135deg, #7C3AED, #C084FC); }
+.g2 { background: linear-gradient(135deg, #EC4899, #FB923C); }
+.g3 { background: linear-gradient(135deg, #0891B2, #22D3EE); }
+
+/* leaderboard */
+.lb { display:grid; grid-template-columns: 34px minmax(0,1fr) auto; gap:12px; align-items:center;
+      padding:10px 12px; border:1px solid #EEE8FB; border-radius:14px; margin-bottom:8px; background:#FCFAFF; }
+.lb-rank { font-size:18px; text-align:center; font-weight:800; color:__MUTED__; }
+.lb-name { font-weight:700; font-size:13.5px; color:__INK__; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.lb-badge { font-size:11px; font-weight:700; color:__MUTED__; }
+.lb-bar { height:6px; border-radius:6px; background:#EDE9FE; margin-top:6px; overflow:hidden; }
+.lb-bar > div { height:100%; background: linear-gradient(90deg, #7C3AED, #EC4899); border-radius:6px; }
+.lb-val { text-align:right; font-weight:800; font-size:14px; color:__INK__; white-space:nowrap; }
+.lb-val small { display:block; font-weight:600; color:__MUTED__; font-size:11px; }
+
+/* insight */
+.tea { background:#FFF7ED; border-left:5px solid #EC4899; border-radius:12px; padding:10px 14px;
+       margin-bottom:8px; font-size:13.5px; color:#4A2B1B; line-height:1.5; overflow-wrap:anywhere; }
+
+/* tombol */
+div.stDownloadButton > button, div.stButton > button {
+    background: linear-gradient(90deg, #7C3AED, #EC4899); color:#fff; font-weight:800; border:none;
+    border-radius:12px; padding:10px 22px; }
+div.stDownloadButton > button:hover { filter: brightness(1.08); color:#fff; }
+</style>
+"""
+
+
 def inject_css():
-    coins = '<div class="coins-container">' + '<div class="coin"></div>' * 7 + "</div>"
-    st.markdown(
-        f"""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-        html, body, [class*="css"] {{ font-family: 'Inter', sans-serif; }}
+    css = CSS.replace("__INK__", INK).replace("__MUTED__", MUTED)
+    st.markdown(css, unsafe_allow_html=True)
 
-        .stApp {{ background: linear-gradient(135deg, #EEF2FB 0%, #E7ECF8 100%); }}
 
-        /* Header Streamlit */
-        header[data-testid="stHeader"] {{ background: transparent; }}
-        .block-container {{ padding-top: 2.2rem; max-width: 1500px; }}
-
-        /* Teks area utama (tidak menimpa sidebar) */
-        [data-testid="stMain"] label, [data-testid="stMain"] label *, [data-testid="stMain"] .stMarkdown p,
-        [data-testid="stMain"] [data-testid="stCaptionContainer"] *, [data-testid="stMain"] [data-testid="stRadio"] * {{ color: {INK}; }}
-        [data-testid="stMain"] label p {{ font-weight: 600; font-size: 13px; }}
-
-        /* Sidebar */
-        [data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #2B4FA8 0%, #223F8C 60%, #1B3476 100%);
-            border-right: none;
-        }}
-        [data-testid="stSidebar"] * {{ color: #FFFFFF; }}
-        [data-testid="stSidebar"] [data-baseweb="select"] * {{ color: {INK} !important; }}
-        [data-testid="stSidebar"] [data-testid="stFileUploader"] section {{ background: rgba(255,255,255,.1); }}
-        [data-testid="stSidebar"] [data-testid="stFileUploader"] small,
-        [data-testid="stSidebar"] [data-testid="stFileUploader"] span,
-        [data-testid="stSidebar"] [data-testid="stFileUploader"] button {{ color: {INK} !important; }}
-
-        .brand {{
-            display:flex; align-items:center; gap:12px; padding:10px 12px;
-            background: rgba(255,255,255,.12); border-radius:14px; margin-bottom:14px;
-        }}
-        .brand-avatar {{
-            width:42px; height:42px; border-radius:50%; background:{YELLOW};
-            display:flex; align-items:center; justify-content:center;
-            font-weight:800; color:#fff !important; font-size:15px;
-        }}
-        .brand-name {{ font-weight:700; font-size:14px; line-height:1.2; }}
-        .brand-role {{ font-size:11px; opacity:.95; }}
-
-        /* Menu navigasi (radio) */
-        [data-testid="stSidebar"] div[role="radiogroup"] {{ gap: 4px; }}
-        [data-testid="stSidebar"] div[role="radiogroup"] label {{
-            padding: 10px 14px; border-radius: 10px; width: 100%; cursor: pointer;
-            transition: background .15s;
-        }}
-        [data-testid="stSidebar"] div[role="radiogroup"] label:hover {{ background: rgba(255,255,255,.12); }}
-        [data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child {{ display:none; }}
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {{
-            background: {YELLOW};
-        }}
-        [data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) * {{
-            color: #3B2A00 !important; font-weight: 800;
-        }}
-        .side-label {{
-            font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
-            opacity: .95; margin: 18px 0 6px 4px; font-weight: 800;
-        }}
-
-        /* Header halaman */
-        .page-title {{ font-size: 30px; font-weight: 800; color: {INK}; letter-spacing: -.5px; margin: 0; }}
-        .page-sub {{ color: {MUTED}; font-size: 14px; font-weight:500; margin: 2px 0 18px 0; }}
-
-        /* Kartu */
-        .card {{
-            background:#fff; border-radius:16px; padding:18px 20px;
-            box-shadow: 0 6px 22px rgba(30,41,59,.07); border:1px solid #E6EAF4;
-            margin-bottom: 4px;
-        }}
-        .card-title {{ font-size:15px; font-weight:800; color:{INK}; margin-bottom:2px; }}
-        .card-sub {{ font-size:12px; color:{MUTED}; font-weight:500; margin-bottom:8px; }}
-
-        /* KPI */
-        .kpi {{
-            background:#fff; border-radius:16px; padding:16px 18px;
-            box-shadow: 0 6px 22px rgba(30,41,59,.07); border:1px solid #E6EAF4;
-            display:flex; gap:14px; align-items:center; height:100%;
-        }}
-        .kpi-accent {{ width:6px; align-self:stretch; border-radius:6px; flex-shrink:0; }}
-        .kpi-title {{ font-size:12px; color:{MUTED}; font-weight:700; }}
-        .kpi-value {{ font-size:24px; font-weight:800; color:{INK}; line-height:1.15; }}
-        .kpi-delta {{ font-size:12px; font-weight:700; }}
-        .up {{ color:{GREEN}; }} .down {{ color:{RED}; }} .flat {{ color:{MUTED}; }}
-
-        /* Daftar produk */
-        .prod {{
-            display:flex; align-items:center; gap:14px; padding:10px 12px;
-            border-radius:12px; border:1px solid #EDF0F7; margin-bottom:8px; background:#FBFCFF;
-        }}
-        .prod-rank {{ width:22px; font-weight:800; color:{MUTED}; font-size:13px; text-align:center; }}
-        .prod-icon {{
-            position:relative; width:56px; height:56px; border-radius:12px; display:flex; overflow:hidden;
-            align-items:center; justify-content:center; font-size:20px; font-weight:800;
-            color:{MUTED}; background:#E8EDF8; flex-shrink:0; border:1px solid #E2E8F0;
-        }}
-        .prod-icon img {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; background:#fff; }}
-        .prod-body {{ flex:1; min-width:0; }}
-        .prod-name {{
-            font-weight:700; font-size:13.5px; color:{INK};
-            white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-        }}
-        .prod-cat {{ font-size:11.5px; color:{MUTED}; font-weight:500; }}
-        .prod-bar {{ height:6px; border-radius:6px; background:#E8EDF8; margin-top:6px; overflow:hidden; }}
-        .prod-bar > div {{ height:100%; background:linear-gradient(90deg,{BLUE},#6C8BFF); border-radius:6px; }}
-        .prod-val {{ text-align:right; font-weight:800; font-size:14px; color:{INK}; white-space:nowrap; }}
-        .prod-val small {{ display:block; font-weight:600; color:{MUTED}; font-size:11px; }}
-
-        /* Insight */
-        .insight {{
-            background:#FFF8E6; border:1px solid #F7E2A8; border-radius:12px;
-            padding:10px 14px; margin-bottom:8px; font-size:13px; color:#5B4300;
-        }}
-
-        /* Tombol */
-        div.stDownloadButton > button, div.stButton > button {{
-            background:{YELLOW}; color:#3B2A00; font-weight:800; border:none;
-            border-radius:10px; padding:10px 22px;
-        }}
-        div.stDownloadButton > button:hover {{ background:#E8A824; color:#3B2A00; }}
-
-        /* Animasi koin jatuh */
-        .coins-container {{ position:fixed; inset:0; pointer-events:none; z-index:0; overflow:hidden; }}
-        .coin {{
-            position:absolute; width:34px; height:34px; border-radius:50%;
-            background: radial-gradient(circle at 35% 35%, #FCD34D, #F59E0B 60%, #B45309);
-            border:2px solid #FBBF24; opacity:.5; animation: fall linear infinite;
-        }}
-        .coin::after {{
-            content:"$"; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-            font-weight:900; font-size:17px; color:#78350F;
-        }}
-        @keyframes fall {{
-            0% {{ transform: translateY(-60px) rotate(0deg); opacity:0; }}
-            15% {{ opacity:.55; }}
-            100% {{ transform: translateY(105vh) rotate(360deg); opacity:0; }}
-        }}
-        .coin:nth-child(1) {{ left:4%; animation-duration:7s; }}
-        .coin:nth-child(2) {{ left:19%; animation-duration:9s; animation-delay:2s; }}
-        .coin:nth-child(3) {{ left:35%; animation-duration:6.5s; animation-delay:1s; }}
-        .coin:nth-child(4) {{ left:52%; animation-duration:8.5s; animation-delay:3s; }}
-        .coin:nth-child(5) {{ left:68%; animation-duration:10s; animation-delay:.5s; }}
-        .coin:nth-child(6) {{ left:82%; animation-duration:7.5s; animation-delay:2.5s; }}
-        .coin:nth-child(7) {{ left:93%; animation-duration:6s; animation-delay:1.5s; }}
-        </style>
-        {coins}
-        """,
-        unsafe_allow_html=True,
-    )
+inject_css()
 
 
 # =========================
-# HELPER DATA
+# HELPER FORMAT
 # =========================
-def read_csv_bytes(data: bytes, filename: str):
-    last_error = None
-    for encoding in ("utf-8-sig", "utf-8", "latin1"):
-        for sep in (None, ";", ",", "\t", "|"):
-            try:
-                if sep is None:
-                    frame = pd.read_csv(io.BytesIO(data), sep=None, engine="python", encoding=encoding)
-                else:
-                    frame = pd.read_csv(io.BytesIO(data), sep=sep, encoding=encoding)
-                if len(frame.columns) > 1 or len(frame) == 0:
-                    frame.columns = [str(c).strip().replace("\ufeff", "") for c in frame.columns]
-                    return frame
-            except Exception as exc:
-                last_error = exc
-    raise ValueError(f"Gagal membaca {filename}: {last_error}")
-
-
-@st.cache_data(show_spinner=False)
-def get_data_options():
-    options = {}
-    for p in sorted(Path(".").glob("*.csv")):
-        try:
-            options[p.name] = read_csv_bytes(p.read_bytes(), p.name)
-        except Exception:
-            pass
-    for zpath in sorted(Path(".").glob("*.zip")):
-        try:
-            with ZipFile(zpath) as zf:
-                for member in zf.namelist():
-                    if member.lower().endswith(".csv") and not member.endswith("/"):
-                        try:
-                            options[f"{zpath.name} ▸ {Path(member).name}"] = read_csv_bytes(zf.read(member), member)
-                        except Exception:
-                            pass
-        except (BadZipFile, OSError):
-            pass
-    return options
-
-
-def norm(text):
-    return re.sub(r"[^a-z0-9]+", "", str(text).lower())
-
-
-ALIASES = {
-    "date": ["orderdate", "transactiondate", "tanggaltransaksi", "tanggal", "date", "createdat", "purchasedate", "invoicedate", "timestamp"],
-    "product": ["productname", "namaproduk", "produk", "product", "itemname", "namabarang", "barang", "producttitle", "sku"],
-    "category": ["category", "kategori", "productcategory", "kategoriproduk", "namakategori", "categoryname", "productcategories"],
-    "revenue": ["revenue", "sales", "totalprice", "totalamount", "amount", "omzet", "pendapatan", "totalpenjualan", "gmv", "total"],
-    "quantity": ["quantity", "qty", "jumlah", "jumlahbarang", "unit", "units", "jumlahterjual", "kuantitas", "totalqty"],
-    "unit_price": ["unitprice", "price", "harga", "hargasatuan", "sellingprice", "hargaunit"],
-    "kabupaten": ["kabupaten", "kabupatenkota", "city", "kota", "district", "regency", "shippingcity", "customercity"],
-    "province": ["province", "provinsi", "state", "shippingprovince"],
-    "order_id": ["orderid", "transactionid", "invoiceid", "idtransaksi", "nomororder", "idorder"],
-    "customer": ["customername", "namapelanggan", "pelanggan", "customer", "namacustomer", "buyer", "pembeli"],
-    "discount": ["discount", "diskon", "potonganharga", "discountamount", "discountval", "potongan", "totaldiskon"],
-    "status": ["orderstatus", "status", "statuspesanan", "statustransaksi", "deliverystatus"],
-    "cancel_reason": ["cancelreason", "alasanpembatalan", "cancellationreason", "alasanbatal", "reason"],
-}
-
-LABELS = {
-    "date": "Tanggal", "product": "Produk", "category": "Kategori", "revenue": "Omzet / Total",
-    "quantity": "Jumlah", "unit_price": "Harga satuan", "kabupaten": "Kabupaten / Kota",
-    "province": "Provinsi", "order_id": "ID Pesanan", "customer": "Pelanggan",
-    "discount": "Diskon", "status": "Status", "cancel_reason": "Alasan batal",
-}
-
-
-def find_column(df, kind):
-    normalized = {c: norm(c) for c in df.columns}
-    aliases = [norm(x) for x in ALIASES[kind]]
-    for alias in aliases:
-        for col, ncol in normalized.items():
-            if ncol == alias:
-                return col
-    for alias in aliases:
-        if len(alias) >= 5:
-            for col, ncol in normalized.items():
-                if alias in ncol or (len(ncol) >= 5 and ncol in alias):
-                    return col
-    return None
-
-
-def money_value(series):
-    if pd.api.types.is_numeric_dtype(series):
-        return pd.to_numeric(series, errors="coerce")
-    cleaned = series.astype(str).str.strip()
-    cleaned = cleaned.str.replace(r"(?i)rp|idr|usd|\$", "", regex=True)
-    cleaned = cleaned.str.replace(r"[^\d,.\-]", "", regex=True)
-
-    def parse_one(x):
-        if not x or x.lower() == "nan":
-            return float("nan")
-        if "," in x and "." in x:
-            if x.rfind(",") > x.rfind("."):
-                x = x.replace(".", "").replace(",", ".")
-            else:
-                x = x.replace(",", "")
-        elif "," in x:
-            parts = x.split(",")
-            x = "".join(parts) if len(parts[-1]) == 3 else ".".join(parts)
-        elif "." in x:
-            parts = x.split(".")
-            if len(parts[-1]) == 3:
-                x = "".join(parts)
-        try:
-            return float(x)
-        except ValueError:
-            return float("nan")
-
-    return cleaned.map(parse_one)
-
-
 def format_rp(value):
     if pd.isna(value):
         value = 0
@@ -307,7 +169,6 @@ def format_rp(value):
 
 
 def format_short(value):
-    """Rp 1,2 M / 3,4 jt / 5,6 rb agar muat di kartu."""
     if pd.isna(value):
         value = 0
     a = abs(value)
@@ -318,138 +179,370 @@ def format_short(value):
 
 
 def format_int(value):
+    if pd.isna(value):
+        value = 0
     return f"{value:,.0f}".replace(",", ".")
 
 
-def shorten(text, n=28):
+def format_pct(value, digits=1):
+    return f"{value:.{digits}f}".replace(".", ",") + "%"
+
+
+def shorten(text, n=30):
     t = str(text)
     return t if len(t) <= n else t[: n - 1] + "…"
 
 
-# =========================
-# FOTO PRODUK (foto asli dari Wikimedia Commons)
-# =========================
-IMG_BASE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
-IMAGE_RULES = [
-    (r"tws|earbud|earphone|airpods?|in-ear", "JLab true wireless.jpg"),
-    (r"headset|headphone", "Earfun wireless black headphones, September 2024 02.jpg"),
-    (r"speaker", "JBL Flip 4.jpg"),
-    (r"smartwatch|\bjam\b|watch|arloji", "Nilax wristwatch.jpg"),
-    (r"kamera|camera|dslr|mirrorless", "Nikon DSLR camera D850.jpg"),
-    (r"laptop|notebook|macbook|komputer", "Lenovo ThinkPad T410 laptop (cropped).jpg"),
-    (r"\bhp\b|phone|smartphone|ponsel|iphone|android|handphone", "Android Smartphone.jpg"),
-    (r"sepatu|shoe|sneaker|sandal|boots?", "Nike shoes.jpg"),
-    (r"ransel|backpack", "High Sierra backpack.JPG"),
-    (r"handbag|tas tangan|tote|tas wanita", "Black Microfiber Handbag.JPG"),
-    (r"\btas\b|\bbag\b|koper", "High Sierra backpack.JPG"),
-    (r"dompet|wallet", "Wallet.jpg"),
-    (r"jaket|jacket|hoodie|sweater|coat", "Columbia Sportswear Jacket.jpg"),
-    (r"celana|jeans|pants", "Denim Jeans Pant Display.JPG"),
-    (r"kaos|baju|kemeja|shirt|atasan", "Men's long-sleeve T-shirt.jpg"),
-    (r"kacamata|sunglasses|glasses", "Oakley sunglasses.jpg"),
-    (r"parfum|perfume|kecantikan|beauty|kosmetik", "Vintage Atomizer Perfume Bottle.JPG"),
-    (r"buku|book", "Stack of Books.jpg"),
-]
+def month_label(ts):
+    return f"{MONTHS_ID[ts.month - 1]} {ts.year}"
 
 
-def product_image(name, category=""):
-    """URL foto sesuai jenis produk; None bila jenisnya tidak dikenali (tampil inisial)."""
-    for text in (str(name).lower(), str(category).lower()):
-        for pattern, filename in IMAGE_RULES:
-            if re.search(pattern, text):
-                return IMG_BASE + quote(filename.replace(" ", "_"), safe="()") + "?width=160"
-    return None
-
-
-# =========================
-# KOMPONEN UI
-# =========================
-def page_header(title, sub):
-    st.markdown(f'<div class="page-title">{title}</div><div class="page-sub">{sub}</div>', unsafe_allow_html=True)
-
-
-def kpi(col, accent, title, value, delta=None):
-    d = ""
-    if delta is not None:
-        cls = "up" if delta > 0 else ("down" if delta < 0 else "flat")
-        arrow = "▲" if delta > 0 else ("▼" if delta < 0 else "●")
-        d = f'<div class="kpi-delta {cls}">{arrow} {abs(delta):.1f}% vs periode lalu</div>'
-    col.markdown(
-        f'<div class="kpi"><div class="kpi-accent" style="background:{accent}"></div>'
-        f'<div><div class="kpi-title">{title}</div><div class="kpi-value">{value}</div>{d}</div></div>',
-        unsafe_allow_html=True,
-    )
-
-
-def card_open(title, sub=""):
-    s = f'<div class="card-sub">{sub}</div>' if sub else ""
-    st.markdown(f'<div class="card"><div class="card-title">{title}</div>{s}', unsafe_allow_html=True)
-
-
-def card_close():
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-def style_fig(fig, height=300, legend=False):
-    fig.update_layout(
-        height=height, margin=dict(l=8, r=8, t=8, b=8),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(family="Inter", color=INK, size=12), showlegend=legend,
-        legend=dict(orientation="h", y=1.12, x=0),
-        hoverlabel=dict(font_family="Inter"),
-    )
-    fig.update_xaxes(showgrid=False, title="", linecolor="#E2E8F0")
-    fig.update_yaxes(gridcolor="#EEF1F8", title="", zeroline=False)
-    return fig
+def chip(g):
+    if g is None or pd.isna(g):
+        return ""
+    cls = "up" if g > 0 else ("down" if g < 0 else "flat")
+    arrow = "▲" if g > 0 else ("▼" if g < 0 else "●")
+    return f'<span class="{cls}">{arrow} {abs(g):.1f}%</span>'
 
 
 def growth(series):
-    """Pertumbuhan nilai periode terakhir vs sebelumnya."""
     s = series.dropna()
     if len(s) < 2 or s.iloc[-2] == 0:
         return None
     return (s.iloc[-1] - s.iloc[-2]) / abs(s.iloc[-2]) * 100
 
 
-def product_list(frame, metric_col, n, as_money=True, sub_col=None):
-    top = frame.sort_values(metric_col, ascending=False).head(n)
+# =========================
+# HELPER UI
+# =========================
+def page_header(title, sub):
+    st.markdown(f'<div class="page-title">{title}</div><div class="page-sub">{sub}</div>', unsafe_allow_html=True)
+
+
+def kpi(col, icon, bg, title, value, sub=""):
+    sub_html = f'<div class="kpi-sub">{sub}</div>' if sub else ""
+    col.markdown(
+        f'<div class="kpi"><div class="kpi-icon" style="background:{bg}">{icon}</div>'
+        f'<div class="kpi-body"><div class="kpi-title">{title}</div>'
+        f'<div class="kpi-value">{value}</div>{sub_html}</div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def card(title, sub=""):
+    box = st.container(border=True)
+    with box:
+        sub_html = f'<div class="card-sub">{sub}</div>' if sub else '<div style="height:6px"></div>'
+        st.markdown(f'<div class="card-title">{title}</div>{sub_html}', unsafe_allow_html=True)
+    return box
+
+
+def style_fig(fig, height=340, legend=False):
+    fig.update_layout(
+        height=height,
+        margin=dict(l=10, r=24, t=16, b=72 if legend else 16),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Plus Jakarta Sans, Inter, sans-serif", color=INK, size=12),
+        showlegend=legend,
+        legend=dict(orientation="h", yanchor="top", y=-0.12, xanchor="left", x=0, title_text=""),
+        hoverlabel=dict(font_family="Plus Jakarta Sans"),
+    )
+    fig.update_xaxes(showgrid=False, title_text="", automargin=True, linecolor="#E5E0F5")
+    fig.update_yaxes(gridcolor="#ECE8FA", title_text="", zeroline=False, automargin=True)
+    return fig
+
+
+def show(fig, key):
+    st.plotly_chart(fig, width="stretch", key=key)
+
+
+def hbar(data, value, label, color, fmt, height=None, pad=1.3, highlight=None, sign_colors=False):
+    """Bar horizontal rapi: label dipotong, angka di luar bar, ruang kanan disiapkan."""
+    d = data.sort_values(value, ascending=True).copy()
+    labels = d[label].astype(str).map(lambda v: shorten(v, 34))
+    if labels.duplicated().any():
+        labels = d[label].astype(str)
+    if sign_colors:
+        colors = [LIME if v >= 0 else RED for v in d[value]]
+    elif highlight is not None:
+        colors = [PINK if str(v) == str(highlight) else color for v in d[label]]
+    else:
+        colors = color
+    vmax = float(d[value].max()) if len(d) else 1.0
+    vmin = float(d[value].min()) if len(d) else 0.0
+    fig = go.Figure(
+        go.Bar(
+            x=d[value], y=labels, orientation="h", marker_color=colors,
+            text=d[value].map(fmt), textposition="outside", cliponaxis=False,
+            customdata=d[label].astype(str), hovertemplate="<b>%{customdata}</b><br>%{text}<extra></extra>",
+        )
+    )
+    fig.update_xaxes(range=[min(0, vmin * pad), max(0.0001, vmax * pad)], showticklabels=False, showgrid=False)
+    style_fig(fig, height or max(260, 40 * len(d) + 40))
+    fig.update_yaxes(showgrid=False)
+    return fig
+
+
+def leaderboard(data, label_col, value_col, fmt, n=5, sub_fn=None):
+    top = data.sort_values(value_col, ascending=False).head(n)
     if top.empty:
-        st.info("Data produk tidak tersedia.")
+        st.info("Belum ada data.")
         return
-    mx = top[metric_col].max() or 1
+    mx = float(top[value_col].max()) or 1.0
     html = ""
-    for i, (_, r) in enumerate(top.iterrows(), 1):
-        img = product_image(r["_product"], r.get("_category", ""))
-        img_tag = f'<img src="{img}" alt="" loading="lazy" referrerpolicy="no-referrer">' if img else ""
-        pname = html_escape(str(r["_product"]))
-        pcat = html_escape(str(r.get("_category", "")))
-        initial = html_escape(str(r["_product"])[:1].upper())
-        val = format_rp(r[metric_col]) if as_money else format_int(r[metric_col])
-        sub = ""
-        if sub_col:
-            sub = f"<small>{sub_col[1](r[sub_col[0]])}</small>"
-        pct = max(4, r[metric_col] / mx * 100)
+    for i, (_, r) in enumerate(top.iterrows()):
+        medal = MEDALS[i] if i < len(MEDALS) else f"#{i + 1}"
+        badge = BADGES[i] if i < len(BADGES) else "Anak Emas"
+        sub = f"<small>{sub_fn(r)}</small>" if sub_fn else ""
+        pct = max(4, float(r[value_col]) / mx * 100)
         html += (
-            f'<div class="prod"><div class="prod-rank">{i}</div>'
-            f'<div class="prod-icon">{initial}{img_tag}</div>'
-            f'<div class="prod-body"><div class="prod-name" title="{pname}">{pname}</div>'
-            f'<div class="prod-cat">{pcat}</div>'
-            f'<div class="prod-bar"><div style="width:{pct:.0f}%"></div></div></div>'
-            f'<div class="prod-val">{val}{sub}</div></div>'
+            f'<div class="lb"><div class="lb-rank">{medal}</div>'
+            f'<div style="min-width:0"><div class="lb-name" title="{esc(str(r[label_col]))}">{esc(str(r[label_col]))}</div>'
+            f'<div class="lb-badge">{badge}</div><div class="lb-bar"><div style="width:{pct:.0f}%"></div></div></div>'
+            f'<div class="lb-val">{fmt(r[value_col])}{sub}</div></div>'
         )
     st.markdown(html, unsafe_allow_html=True)
 
 
 # =========================
-# SIDEBAR: MENU & SUMBER DATA
+# LOAD DATA
 # =========================
-PAGES = ["Ringkasan", "Produk", "Wilayah", "Diskon & Pembatalan", "Data Transaksi"]
+BASE_DIR = Path(__file__).resolve().parent if "__file__" in globals() else Path(".")
+
+
+def read_csv_bytes(data: bytes, filename: str):
+    last_error = None
+    for encoding in ("utf-8-sig", "utf-8", "latin1"):
+        for sep in (";", ",", "\t", "|", None):
+            try:
+                if sep is None:
+                    frame = pd.read_csv(io.BytesIO(data), sep=None, engine="python", encoding=encoding)
+                else:
+                    frame = pd.read_csv(io.BytesIO(data), sep=sep, encoding=encoding)
+                if len(frame.columns) > 1:
+                    frame.columns = [str(c).strip().replace("\ufeff", "") for c in frame.columns]
+                    return frame
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+    raise ValueError(f"Gagal membaca {filename}: {last_error}")
+
+
+@st.cache_data(show_spinner=False)
+def get_data_options():
+    options = {}
+    seen = set()
+    for folder in (BASE_DIR, Path(".")):
+        for p in sorted(folder.glob("*.csv")):
+            if p.resolve() in seen:
+                continue
+            seen.add(p.resolve())
+            try:
+                options[p.name] = read_csv_bytes(p.read_bytes(), p.name)
+            except Exception:  # noqa: BLE001
+                pass
+        for zpath in sorted(folder.glob("*.zip")):
+            if zpath.resolve() in seen:
+                continue
+            seen.add(zpath.resolve())
+            try:
+                with ZipFile(zpath) as zf:
+                    for member in zf.namelist():
+                        if member.lower().endswith(".csv") and not member.endswith("/"):
+                            try:
+                                options[f"{zpath.name} ▸ {Path(member).name}"] = read_csv_bytes(zf.read(member), member)
+                            except Exception:  # noqa: BLE001
+                                pass
+            except (BadZipFile, OSError):
+                pass
+    return options
+
+
+def snake(c):
+    c = str(c).strip().replace("\ufeff", "").lower()
+    c = re.sub(r"[/\s]+", "_", c)
+    c = re.sub(r"_+", "_", c)
+    return c.strip("_")
+
+
+REQUIRED = ["order_id", "product_categories", "total_pembayaran", "status_pesanan", "kota_kabupaten"]
+NUMERIC = [
+    "total_qty", "total_weight_gr", "total_returned_qty", "total_diskon", "num_product_categories",
+    "ongkos_kirim_dibayar_oleh_pembeli", "estimasi_potongan_biaya_pengiriman", "total_pembayaran",
+    "perkiraan_ongkos_kirim",
+]
+TEXT_DEFAULTS = {
+    "provinsi": "Tidak diketahui", "metode_pembayaran": "Tidak diketahui",
+    "opsi_pengiriman": "Tidak diketahui", "alasan_pembatalan": "Tidak dibatalkan",
+}
+
+
+def status_group(s):
+    t = str(s).lower()
+    if t.startswith("selesai"):
+        return "Selesai"
+    if "batal" in t or "cancel" in t:
+        return "Batal"
+    if "pengembalian" in t or "diterima" in t:
+        return "Diterima (masa retur)"
+    if "dikirim" in t:
+        return "Dalam pengiriman"
+    return "Lainnya"
+
+
+def parse_dates(series):
+    try:
+        return pd.to_datetime(series, errors="coerce", format="mixed", dayfirst=True)
+    except (TypeError, ValueError):
+        return pd.to_datetime(series, errors="coerce", dayfirst=True)
+
+
+@st.cache_data(show_spinner="Lagi nyiapin data… ✨")
+def prepare(raw):
+    df = raw.copy()
+    df.columns = [snake(c) for c in df.columns]
+    missing = [c for c in REQUIRED if c not in df.columns]
+    if missing:
+        return None, missing
+    df = df.drop_duplicates().copy()
+
+    for c in NUMERIC:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        else:
+            df[c] = np.nan if c == "total_qty" else 0
+    df["total_pembayaran"] = df["total_pembayaran"].fillna(0)
+    df["total_diskon"] = df["total_diskon"].fillna(0)
+    df["total_returned_qty"] = df["total_returned_qty"].fillna(0)
+
+    for c, default in TEXT_DEFAULTS.items():
+        df[c] = df[c].fillna(default).astype(str).str.strip() if c in df.columns else default
+    df["product_categories"] = df["product_categories"].fillna("Tidak diketahui").astype(str).str.strip()
+    df["status_pesanan"] = df["status_pesanan"].fillna("Lainnya").astype(str).str.strip()
+    df["kota_kabupaten"] = df["kota_kabupaten"].fillna("Tidak diketahui").astype(str).str.strip().str.upper()
+    df["provinsi"] = df["provinsi"].astype(str).str.upper()
+    df["order_id"] = df["order_id"].astype(str)
+
+    # Tanggal: utamakan waktu_pesanan_dibuat (format ISO, lengkap), cadangan order_date
+    dt = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
+    if "waktu_pesanan_dibuat" in df.columns:
+        dt = pd.to_datetime(df["waktu_pesanan_dibuat"], errors="coerce")
+    if "order_date" in df.columns:
+        dt = dt.fillna(parse_dates(df["order_date"]))
+    df["dt"] = dt
+    df["year"] = df["dt"].dt.year
+    df["month"] = df["dt"].dt.to_period("M").dt.to_timestamp()
+    df["weekday"] = df["dt"].dt.dayofweek
+    df["hour"] = df["dt"].dt.hour
+
+    df["status_group"] = df["status_pesanan"].map(status_group)
+    df["is_batal"] = df["status_group"].eq("Batal")
+    df["is_cod"] = df["metode_pembayaran"].str.contains("COD", case=False, na=False)
+    return df, []
+
+
+def explode_categories(frame, mode):
+    """Satu baris per (pesanan, kategori). Omzet pesanan multi-kategori dibagi rata atau dikredit penuh."""
+    x = frame[["order_id", "product_categories", "total_pembayaran", "total_qty", "kota_kabupaten", "month"]].copy()
+    x["kategori"] = x["product_categories"].str.split(",")
+    x["n_kat"] = x["kategori"].str.len().clip(lower=1)
+    x = x.explode("kategori")
+    x["kategori"] = x["kategori"].str.strip()
+    x = x[x["kategori"].ne("")].copy()
+    x["omzet_alloc"] = x["total_pembayaran"] / x["n_kat"] if mode == "Bagi rata" else x["total_pembayaran"]
+    x["qty_est"] = x["total_qty"] / x["n_kat"]
+    return x
+
+
+def category_table(ex):
+    if ex.empty:
+        return pd.DataFrame(columns=["kategori", "omzet", "pesanan", "unit", "share", "omzet_per_pesanan"])
+    t = ex.groupby("kategori").agg(
+        omzet=("omzet_alloc", "sum"), pesanan=("order_id", "nunique"), unit=("qty_est", "sum")
+    ).reset_index()
+    tot = t["omzet"].sum()
+    t["share"] = t["omzet"] / tot * 100 if tot else 0.0
+    t["omzet_per_pesanan"] = t["omzet"] / t["pesanan"].replace(0, np.nan)
+    return t.sort_values("omzet", ascending=False).reset_index(drop=True)
+
+
+def yearly_table(frame):
+    f = frame.dropna(subset=["dt"])
+    if f.empty:
+        return pd.DataFrame()
+    g = f.groupby("year").agg(
+        pesanan=("order_id", "nunique"), omzet=("total_pembayaran", "sum"), bulan_aktif=("month", "nunique")
+    ).reset_index()
+    g["year"] = g["year"].astype(int)
+    g["omzet_per_bulan"] = g["omzet"] / g["bulan_aktif"].replace(0, np.nan)
+    g["growth_per_bulan"] = g["omzet_per_bulan"].pct_change() * 100
+    return g
+
+
+def monthly_table(frame):
+    f = frame.dropna(subset=["dt"])
+    if f.empty:
+        return pd.DataFrame(columns=["month", "omzet", "pesanan"])
+    return f.groupby("month").agg(omzet=("total_pembayaran", "sum"), pesanan=("order_id", "nunique")).reset_index()
+
+
+def full_months(m, frame):
+    """Buang bulan terakhir bila datanya belum lengkap."""
+    if m.empty:
+        return m
+    last = frame["dt"].max()
+    if pd.isna(last):
+        return m
+    last_month = last.to_period("M").to_timestamp()
+    if last_month == m["month"].max() and last.day < calendar.monthrange(last.year, last.month)[1] - 1:
+        return m.iloc[:-1]
+    return m
+
+
+def vibe_score(cancel_rate, growth_pct, return_rate):
+    s_cancel = float(np.clip(100 - cancel_rate * 4, 0, 100))
+    s_growth = float(np.clip(50 + (growth_pct or 0) * 2, 0, 100))
+    s_return = float(np.clip(100 - return_rate * 10, 0, 100))
+    return int(round(0.4 * s_cancel + 0.4 * s_growth + 0.2 * s_return))
+
+
+def vibe_label(score):
+    if score >= 75:
+        return "SLAY 💅", "Bisnis lagi glowing banget!"
+    if score >= 55:
+        return "Aman Jaya 😎", "Vibes-nya oke, tinggal dipoles dikit."
+    if score >= 35:
+        return "Mid 😐", "Biasa aja, ada PR yang harus digarap."
+    return "Flop Era 🥲", "Waktunya glow-up besar-besaran."
+
+
+def default_city(cities):
+    for c in cities:
+        if c.strip().upper() == "KAB. BOGOR":
+            return c
+    for c in cities:
+        if "BOGOR" in c.upper() and "KOTA" not in c.upper():
+            return c
+    return cities[0]
+
+
+# =========================
+# SIDEBAR: MENU, DATA, FILTER
+# =========================
+PAGES = [
+    "🏠 Beranda",
+    "💰 Cuan Kategori",
+    "📈 Tren Penjualan",
+    "📍 Kabupaten Bogor",
+    "⏰ Jam & Tanggal Cuan",
+    "💳 Bayar, Kirim & Batal",
+    "🗂️ Data Transaksi",
+]
 
 with st.sidebar:
     st.markdown(
-        '<div class="brand"><div class="brand-avatar">AD</div><div>'
-        '<div class="brand-name">Admin Workspace</div>'
-        '<div class="brand-role">NusaCommerce Analytics</div></div></div>',
+        '<div class="brand"><div class="brand-avatar">🛍️</div><div>'
+        '<div class="brand-name">NusaCommerce</div><div class="brand-role">Vibe Dashboard ✨</div></div></div>',
         unsafe_allow_html=True,
     )
     st.markdown('<div class="side-label">Menu</div>', unsafe_allow_html=True)
@@ -459,387 +552,678 @@ with st.sidebar:
     data_options = get_data_options()
     uploaded = st.file_uploader("Unggah CSV / ZIP", type=["csv", "zip"])
 
-
-inject_css()
-
-df_raw = None
-if uploaded is not None:
-    try:
-        if uploaded.name.lower().endswith(".zip"):
-            with ZipFile(uploaded) as zf:
-                csv_members = [n for n in zf.namelist() if n.lower().endswith(".csv") and not n.endswith("/")]
-                if not csv_members:
-                    st.error("ZIP tidak berisi file CSV.")
-                    st.stop()
-                member = st.sidebar.selectbox("Pilih file dalam ZIP", csv_members)
-                df_raw = read_csv_bytes(zf.read(member), member)
-        else:
-            df_raw = read_csv_bytes(uploaded.getvalue(), uploaded.name)
-    except Exception as exc:
-        st.error(f"Gagal memproses file: {exc}")
+    df_raw = None
+    if uploaded is not None:
+        try:
+            if uploaded.name.lower().endswith(".zip"):
+                with ZipFile(uploaded) as zf:
+                    members = [n for n in zf.namelist() if n.lower().endswith(".csv") and not n.endswith("/")]
+                    if not members:
+                        st.error("ZIP tidak berisi file CSV.")
+                        st.stop()
+                    member = st.selectbox("Pilih file dalam ZIP", members)
+                    df_raw = read_csv_bytes(zf.read(member), member)
+            else:
+                df_raw = read_csv_bytes(uploaded.getvalue(), uploaded.name)
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Gagal memproses file: {exc}")
+            st.stop()
+    elif data_options:
+        ranked = []
+        for name, frame in data_options.items():
+            cols = {snake(c) for c in frame.columns}
+            ranked.append((all(c in cols for c in REQUIRED), len(frame), "clean" in name.lower(), name))
+        ranked.sort(reverse=True)
+        names = list(data_options.keys())
+        chosen = st.selectbox("Pilih Dataset", names, index=names.index(ranked[0][3]))
+        df_raw = data_options[chosen].copy()
+    else:
+        st.warning("Taruh data.zip / CSV di folder yang sama dengan app.py, atau unggah lewat sini.")
         st.stop()
-elif data_options:
-    ranked = []
-    for name, frame in data_options.items():
-        score = sum(find_column(frame, k) is not None for k in ("date", "product", "category", "revenue", "quantity"))
-        ranked.append((score, len(frame), name))
-    ranked.sort(reverse=True)
-    default_name = ranked[0][2]
-    names = list(data_options.keys())
-    chosen = st.sidebar.selectbox("Pilih Dataset", names, index=names.index(default_name))
-    df_raw = data_options[chosen].copy()
-else:
-    st.warning("Silakan unggah dataset CSV/ZIP melalui sidebar untuk memulai.")
-    st.stop()
 
-if df_raw is None or df_raw.empty:
-    st.error("Data kosong.")
-    st.stop()
+    if df_raw is None or df_raw.empty:
+        st.error("Data kosong.")
+        st.stop()
 
-# =========================
-# PEMETAAN KOLOM
-# =========================
-detected = {kind: find_column(df_raw, kind) for kind in ALIASES}
-with st.sidebar.expander("Pemetaan Kolom", expanded=False):
-    choices = ["— Tidak tersedia —"] + list(df_raw.columns)
-    for kind in ALIASES:
-        auto = detected.get(kind)
-        idx = choices.index(auto) if auto in choices else 0
-        pick = st.selectbox(LABELS[kind], choices, index=idx, key=f"map_{kind}")
-        detected[kind] = None if pick == "— Tidak tersedia —" else pick
+    d_all, missing_cols = prepare(df_raw)
+    if d_all is None:
+        st.error("Kolom wajib tidak ditemukan: " + ", ".join(missing_cols))
+        st.stop()
 
-date_col, product_col, category_col = detected["date"], detected["product"], detected["category"]
-revenue_col, quantity_col, city_col = detected["revenue"], detected["quantity"], detected["kabupaten"]
-order_col, unit_price_col, discount_col = detected["order_id"], detected["unit_price"], detected["discount"]
-status_col, cancel_reason_col, customer_col = detected["status"], detected["cancel_reason"], detected["customer"]
-
-df = df_raw.copy()
-df["_date"] = pd.to_datetime(df[date_col], errors="coerce", dayfirst=True) if date_col else pd.NaT
-qty_series = money_value(df[quantity_col]).fillna(1) if quantity_col else pd.Series(1, index=df.index)
-if revenue_col:
-    df["_revenue"] = money_value(df[revenue_col])
-elif unit_price_col:
-    df["_revenue"] = money_value(df[unit_price_col]) * qty_series
-else:
-    df["_revenue"] = 0.0
-df["_revenue"] = df["_revenue"].fillna(0)
-df["_quantity"] = qty_series
-df["_discount"] = money_value(df[discount_col]).fillna(0) if discount_col else 0.0
-df["_product"] = df[product_col].fillna("Tidak diketahui").astype(str) if product_col else "Tidak diketahui"
-df["_category"] = df[category_col].fillna("Tidak diketahui").astype(str) if category_col else "Tidak diketahui"
-df["_city"] = df[city_col].fillna("Tidak diketahui").astype(str) if city_col else "Tidak diketahui"
-df["_status"] = df[status_col].fillna("Selesai").astype(str) if status_col else "Selesai"
-df["_cancel_reason"] = df[cancel_reason_col].fillna("Tidak ada alasan").astype(str) if cancel_reason_col else "Lainnya"
-df["_year"] = df["_date"].dt.year
-df["_month"] = df["_date"].dt.to_period("M").dt.to_timestamp()
-df["_weekday"] = df["_date"].dt.dayofweek
-df["_is_cancel"] = df["_status"].str.contains("batal|cancel|dibatalkan|refund|retur|return", case=False, na=False)
-
-# =========================
-# FILTER GLOBAL (SIDEBAR)
-# =========================
-with st.sidebar:
     st.markdown('<div class="side-label">Filter</div>', unsafe_allow_html=True)
-    years = sorted(df["_year"].dropna().astype(int).unique().tolist(), reverse=True)
-    categories = sorted(df["_category"].unique().tolist())
-    cities = sorted(df["_city"].unique().tolist())
-    statuses = sorted(df["_status"].unique().tolist())
+    years = sorted(d_all["year"].dropna().astype(int).unique().tolist(), reverse=True)
+    sel_year = st.selectbox("📅 Tahun", ["Semua Tahun"] + years)
+    groups_present = [g for g in GROUP_ORDER if g in set(d_all["status_group"]) and g != "Batal"]
+    valid_groups = st.multiselect(
+        "✅ Status yang dihitung sebagai penjualan",
+        groups_present,
+        default=["Selesai"] if "Selesai" in groups_present else groups_present,
+    )
+    provinces = sorted(d_all["provinsi"].unique().tolist())
+    sel_prov = st.selectbox("🗺️ Provinsi", ["Semua Provinsi"] + provinces)
+    alloc_mode = st.radio(
+        "🧮 Omzet pesanan multi-kategori",
+        ["Bagi rata", "Kredit penuh"],
+        help="Satu pesanan bisa berisi beberapa kategori. 'Bagi rata' = omzet dibagi sama rata ke tiap kategori "
+             "(total tetap akurat). 'Kredit penuh' = tiap kategori dapat seluruh omzet pesanan.",
+    )
 
-    selected_year = st.selectbox("Tahun", ["Semua Tahun"] + years)
-    selected_category = st.selectbox("Kategori", ["Semua Kategori"] + categories)
-    selected_city = st.selectbox("Kabupaten / Kota", ["Semua Wilayah"] + cities)
-    selected_status = st.selectbox("Status Pesanan", ["Semua Status"] + statuses)
+if not valid_groups:
+    page_header("Dashboard E-Commerce", "Pilih minimal satu status penjualan di sidebar.")
+    st.warning("Belum ada status yang dipilih.")
+    st.stop()
 
-filtered = df.copy()
-if selected_year != "Semua Tahun":
-    filtered = filtered[filtered["_year"] == selected_year]
-if selected_category != "Semua Kategori":
-    filtered = filtered[filtered["_category"] == selected_category]
-if selected_city != "Semua Wilayah":
-    filtered = filtered[filtered["_city"].str.casefold() == str(selected_city).casefold()]
-if selected_status != "Semua Status":
-    filtered = filtered[filtered["_status"] == selected_status]
+year_mask = (d_all["year"] == sel_year) if sel_year != "Semua Tahun" else pd.Series(True, index=d_all.index)
+prov_mask = (d_all["provinsi"] == sel_prov) if sel_prov != "Semua Provinsi" else pd.Series(True, index=d_all.index)
 
-if filtered.empty:
+base = d_all[year_mask & prov_mask]                          # semua status (untuk analisis batal)
+sales = base[base["status_group"].isin(valid_groups)]        # penjualan valid
+sales_nat = d_all[year_mask & d_all["status_group"].isin(valid_groups)]  # nasional, tanpa filter provinsi
+
+if sales.empty:
     page_header("Dashboard E-Commerce", "Tidak ada data untuk kombinasi filter ini.")
     st.warning("Coba longgarkan filter di sidebar.")
     st.stop()
 
 # Metrik umum
-total_rev = filtered["_revenue"].sum()
-total_orders = filtered[order_col].nunique() if order_col else len(filtered)
-total_items = filtered["_quantity"].sum()
+total_rev = sales["total_pembayaran"].sum()
+total_orders = sales["order_id"].nunique()
+total_items = sales["total_qty"].sum()
 aov = total_rev / total_orders if total_orders else 0
-cancel_rate = filtered["_is_cancel"].mean() * 100
-avg_discount = filtered["_discount"].mean() if discount_col else 0
+cancel_rate = base["is_batal"].mean() * 100
+qty_sum = sales["total_qty"].sum()
+return_rate = (sales["total_returned_qty"].sum() / qty_sum * 100) if qty_sum else 0
 
-monthly = filtered.dropna(subset=["_month"]).groupby("_month").agg(
-    revenue=("_revenue", "sum"),
-    orders=(order_col, "nunique") if order_col else ("_revenue", "size"),
-)
-rev_growth = growth(monthly["revenue"]) if not monthly.empty else None
-ord_growth = growth(monthly["orders"]) if not monthly.empty else None
+monthly_all = monthly_table(sales)
+monthly_ok = full_months(monthly_all, sales)
+rev_growth = growth(monthly_ok["omzet"]) if not monthly_ok.empty else None
+ord_growth = growth(monthly_ok["pesanan"]) if not monthly_ok.empty else None
+
+ex_sales = explode_categories(sales, alloc_mode)
+cat_tbl = category_table(ex_sales)
+yearly = yearly_table(sales)
+
 
 # =========================================================
-# HALAMAN 1: RINGKASAN
+# HALAMAN 1: BERANDA
 # =========================================================
 if page == PAGES[0]:
-    page_header("Ringkasan Penjualan", "Pantau omzet, pesanan, dan tren penjualan dalam satu layar.")
+    page_header("Vibe Check Penjualan ✨", "Ringkasan 3 pertanyaan bisnis + fakta seru dari datamu, dalam satu layar.")
 
-    k1, k2, k3, k4 = st.columns(4)
-    kpi(k1, BLUE, "Total Penjualan", format_short(total_rev), rev_growth)
-    kpi(k2, YELLOW, "Jumlah Pesanan", format_int(total_orders), ord_growth)
-    kpi(k3, GREEN, "Barang Terjual", format_int(total_items))
-    kpi(k4, RED, "Rata-rata Nilai Pesanan", format_short(aov))
+    k = st.columns(5)
+    kpi(k[0], "💸", "#EDE9FE", "Total Penjualan", format_short(total_rev), chip(rev_growth) + " vs bulan lalu" if rev_growth is not None else "")
+    kpi(k[1], "🧾", "#FCE7F3", "Jumlah Pesanan", format_int(total_orders), chip(ord_growth) + " vs bulan lalu" if ord_growth is not None else "")
+    kpi(k[2], "📦", "#CFFAFE", "Barang Terjual", format_int(total_items))
+    kpi(k[3], "🛒", "#FFEDD5", "Rata-rata Nilai Pesanan", format_short(aov))
+    kpi(k[4], "🙅", "#FEE2E2", "Tingkat Batal", format_pct(cancel_rate), "dari semua pesanan")
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
-    left, right = st.columns([1.7, 1])
+    # ---- 3 jawaban cepat
+    st.markdown('<div class="card-title" style="margin-bottom:8px">🎯 Jawaban 3 Pertanyaan Utama</div>', unsafe_allow_html=True)
+    a1, a2, a3 = st.columns(3)
+
+    if len(cat_tbl):
+        top1 = cat_tbl.iloc[0]
+        a1.markdown(
+            f'<div class="ans g1"><div class="ans-q">1 · Produk/kategori omzet tertinggi</div>'
+            f'<div class="ans-a">{esc(str(top1["kategori"]))}</div>'
+            f'<div class="ans-d">Omzet {format_short(top1["omzet"])} ({top1["share"]:.0f}% dari total) dari '
+            f'{format_int(top1["pesanan"])} pesanan. Runner-up: '
+            f'<b>{esc(str(cat_tbl.iloc[1]["kategori"])) if len(cat_tbl) > 1 else "-"}</b>.</div></div>',
+            unsafe_allow_html=True,
+        )
+    if len(yearly) >= 1:
+        last = yearly.iloc[-1]
+        if len(yearly) >= 2 and pd.notna(last["growth_per_bulan"]):
+            arah = "naik" if last["growth_per_bulan"] >= 0 else "turun"
+            prev = yearly.iloc[-2]
+            desc = (
+                f"Rata-rata omzet per bulan {int(last['year'])}: {format_short(last['omzet_per_bulan'])}, "
+                f"{arah} {abs(last['growth_per_bulan']):.1f}% dibanding {int(prev['year'])} "
+                f"({format_short(prev['omzet_per_bulan'])}/bulan)."
+            )
+            head = f"{int(last['year'])} {arah} {abs(last['growth_per_bulan']):.0f}%"
+        else:
+            desc = f"Omzet {int(last['year'])}: {format_short(last['omzet'])} dari {int(last['bulan_aktif'])} bulan data."
+            head = f"Tahun {int(last['year'])}"
+        a2.markdown(
+            f'<div class="ans g2"><div class="ans-q">2 · Tren penjualan tahunan</div>'
+            f'<div class="ans-a">{head}</div><div class="ans-d">{desc}</div></div>',
+            unsafe_allow_html=True,
+        )
+
+    city_all = sorted(sales_nat["kota_kabupaten"].unique().tolist())
+    bogor_city = default_city(city_all) if city_all else None
+    if bogor_city:
+        ex_b = explode_categories(sales_nat[sales_nat["kota_kabupaten"] == bogor_city], alloc_mode)
+        cnt_b = ex_b.groupby("kategori")["order_id"].nunique().sort_values(ascending=False)
+        if len(cnt_b):
+            a3.markdown(
+                f'<div class="ans g3"><div class="ans-q">3 · Terlaris di {esc(bogor_city.title())}</div>'
+                f'<div class="ans-a">{esc(str(cnt_b.index[0]))}</div>'
+                f'<div class="ans-d">Muncul di {format_int(cnt_b.iloc[0])} pesanan. Posisi berikutnya: '
+                f'<b>{esc(str(cnt_b.index[1])) if len(cnt_b) > 1 else "-"}</b>.</div></div>',
+                unsafe_allow_html=True,
+            )
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    left, right = st.columns([1, 1.5])
     with left:
-        card_open("Ikhtisar Penjualan", "Omzet (garis) dan jumlah pesanan (batang)")
-        gran = st.radio("Rentang", ["Harian", "Mingguan", "Bulanan"], index=2, horizontal=True, label_visibility="collapsed")
-        freq = {"Harian": "D", "Mingguan": "W", "Bulanan": "MS"}[gran]
-        ts = filtered.dropna(subset=["_date"]).set_index("_date")
-        if not ts.empty:
-            agg = ts.groupby(pd.Grouper(freq=freq)).agg(
-                revenue=("_revenue", "sum"),
-                orders=(order_col, "nunique") if order_col else ("_revenue", "size"),
-            ).reset_index()
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Bar(x=agg["_date"], y=agg["orders"], name="Pesanan", marker_color=YELLOW, opacity=.75), secondary_y=True)
-            fig.add_trace(go.Scatter(
-                x=agg["_date"], y=agg["revenue"], name="Omzet", mode="lines+markers",
-                line=dict(color=BLUE, width=3, shape="spline"), marker=dict(size=5),
-                fill="tozeroy", fillcolor="rgba(47,91,234,.12)",
-            ), secondary_y=False)
-            style_fig(fig, 330, legend=True)
-            fig.update_yaxes(secondary_y=True, showgrid=False)
-            st.plotly_chart(fig, width="stretch")
-        else:
-            st.info("Data tanggal tidak tersedia untuk grafik tren.")
-        card_close()
-
+        box = card("🔮 Vibe Score Bisnis", "Gabungan: tingkat batal, pertumbuhan bulan terakhir, dan retur")
+        score = vibe_score(cancel_rate, rev_growth, return_rate)
+        title, desc = vibe_label(score)
+        with box:
+            fig = go.Figure(go.Indicator(
+                mode="gauge+number", value=score,
+                number=dict(font=dict(size=44, color=INK)),
+                gauge=dict(
+                    axis=dict(range=[0, 100], tickwidth=0),
+                    bar=dict(color=VIOLET, thickness=0.28),
+                    bgcolor="white", borderwidth=0,
+                    steps=[dict(range=[0, 35], color="#FEE2E2"), dict(range=[35, 55], color="#FEF3C7"),
+                           dict(range=[55, 75], color="#DBEAFE"), dict(range=[75, 100], color="#DCFCE7")],
+                ),
+            ))
+            fig.update_layout(height=230, margin=dict(l=20, r=20, t=20, b=0), paper_bgcolor="rgba(0,0,0,0)",
+                              font=dict(family="Plus Jakarta Sans"))
+            show(fig, "vibe_gauge")
+            st.markdown(
+                f'<div style="text-align:center;font-weight:800;font-size:18px;color:{INK}">{title}</div>'
+                f'<div style="text-align:center;font-size:13px;color:{MUTED}">{desc}</div>',
+                unsafe_allow_html=True,
+            )
     with right:
-        card_open("Penjualan per Tahun")
-        yearly = filtered.dropna(subset=["_year"]).groupby("_year", as_index=False)["_revenue"].sum()
-        if not yearly.empty:
-            yearly["_year"] = yearly["_year"].astype(int).astype(str)
-            fig = px.bar(yearly, x="_year", y="_revenue", text=yearly["_revenue"].map(format_short))
-            fig.update_traces(marker_color=BLUE, textposition="outside", cliponaxis=False)
-            st.plotly_chart(style_fig(fig, 330), width="stretch")
-        else:
-            st.info("Data tahunan tidak tersedia.")
-        card_close()
-
-    b1, b2 = st.columns([1, 1.4])
-    with b1:
-        card_open("Wawasan Otomatis", "Ringkasan temuan dari data yang sedang difilter")
-        tips = []
-        tp = filtered.groupby("_product")["_revenue"].sum().sort_values(ascending=False)
-        if len(tp):
-            tips.append(f"Produk terlaris: <b>{shorten(tp.index[0], 40)}</b> ({format_short(tp.iloc[0])}).")
-        tc = filtered.groupby("_city")["_revenue"].sum().sort_values(ascending=False)
-        if len(tc):
-            tips.append(f"Wilayah omzet tertinggi: <b>{tc.index[0]}</b> ({tc.iloc[0] / total_rev * 100 if total_rev else 0:.0f}% dari total).")
-        if not monthly.empty:
-            best = monthly["revenue"].idxmax()
-            tips.append(f"Bulan terbaik: <b>{best:%B %Y}</b> ({format_short(monthly['revenue'].max())}).")
+        box = card("🍵 Spill the Tea", "Temuan otomatis dari data yang sedang difilter")
+        tea = []
+        if len(cat_tbl):
+            t0 = cat_tbl.iloc[0]
+            tea.append(f"👑 <b>{esc(str(t0['kategori']))}</b> itu main character-nya: nyumbang <b>{t0['share']:.0f}%</b> omzet ({format_short(t0['omzet'])}).")
+        reg = sales.groupby("kota_kabupaten")["order_id"].nunique().sort_values(ascending=False)
+        if len(reg):
+            tea.append(f"📍 Wilayah paling rajin checkout: <b>{esc(str(reg.index[0]))}</b> dengan {format_int(reg.iloc[0])} pesanan.")
+        if not monthly_all.empty:
+            best = monthly_all.loc[monthly_all["omzet"].idxmax()]
+            tea.append(f"🏆 Bulan paling cuan: <b>{month_label(best['month'])}</b> ({format_short(best['omzet'])}).")
+        hh = sales.dropna(subset=["hour"])
+        if not hh.empty:
+            h = int(hh.groupby("hour")["order_id"].nunique().idxmax())
+            d = int(hh.groupby("weekday")["order_id"].nunique().idxmax())
+            tea.append(f"⏰ Prime time belanja: jam <b>{h:02d}.00</b>, hari terfavorit <b>{DAYS_ID[d]}</b>.")
+        if base["is_cod"].any():
+            cod_share = base["is_cod"].mean() * 100
+            cr_cod = base.loc[base["is_cod"], "is_batal"].mean() * 100
+            cr_non = base.loc[~base["is_cod"], "is_batal"].mean() * 100
+            tea.append(f"💵 {cod_share:.0f}% pesanan pakai COD. Tingkat batal COD <b>{cr_cod:.1f}%</b> vs non-COD <b>{cr_non:.1f}%</b>.")
         if rev_growth is not None:
-            arah = "naik" if rev_growth >= 0 else "turun"
-            tips.append(f"Omzet bulan terakhir <b>{arah} {abs(rev_growth):.1f}%</b> dibanding bulan sebelumnya.")
-        tips.append(f"Tingkat pembatalan: <b>{cancel_rate:.1f}%</b> dari seluruh transaksi.")
-        for t in tips:
-            st.markdown(f'<div class="insight">{t}</div>', unsafe_allow_html=True)
-        card_close()
+            arah = "naik 📈" if rev_growth >= 0 else "turun 📉"
+            tea.append(f"Omzet bulan terakhir <b>{arah} {abs(rev_growth):.1f}%</b> dibanding bulan sebelumnya.")
+        with box:
+            for t in tea:
+                st.markdown(f'<div class="tea">{t}</div>', unsafe_allow_html=True)
 
-    with b2:
-        card_open("Pesanan Terbaru", "8 transaksi terakhir pada data terfilter")
-        recent = filtered.sort_values("_date", ascending=False).head(8)
-        show = pd.DataFrame({
-            "ID": recent[order_col].astype(str) if order_col else recent.index.astype(str),
-            "Tanggal": recent["_date"].dt.strftime("%d %b %Y"),
-            "Produk": recent["_product"].map(lambda x: shorten(x, 30)),
-            "Wilayah": recent["_city"].map(lambda x: shorten(x, 18)),
-            "Total": recent["_revenue"].map(format_rp),
-            "Status": recent["_status"],
-        })
-        st.dataframe(show, width="stretch", hide_index=True, height=320)
-        card_close()
+    box = card("🏅 Leaderboard Kategori", "Top 5 berdasarkan omzet")
+    with box:
+        leaderboard(cat_tbl, "kategori", "omzet", format_short, n=5,
+                    sub_fn=lambda r: f"{format_int(r['pesanan'])} pesanan")
+
+    with st.expander("ℹ️ Catatan metode (biar nggak salah baca)"):
+        st.markdown(
+            "- **Dataset tidak punya kolom nama produk**, jadi `product_categories` dipakai sebagai 'produk'.\n"
+            "- Satu pesanan bisa berisi beberapa kategori (dipisah koma). Pesanan dipecah per kategori; omzet dibagi "
+            "rata (default) atau dikredit penuh, sesuai pilihan di sidebar.\n"
+            "- **Tanggal** diambil dari `waktu_pesanan_dibuat` (formatnya konsisten), cadangannya `order_date`. "
+            "Ini mencegah ratusan baris hilang karena format tanggal campur aduk.\n"
+            "- Penjualan = status yang dipilih di sidebar (default: **Selesai**). Pesanan **Batal** tidak masuk omzet.\n"
+            "- Tahun yang datanya tidak penuh 12 bulan dibandingkan lewat **omzet rata-rata per bulan**."
+        )
+
 
 # =========================================================
-# HALAMAN 2: PRODUK
+# HALAMAN 2: CUAN KATEGORI  (Pertanyaan 1)
 # =========================================================
 elif page == PAGES[1]:
-    page_header("Analisis Produk", "Produk dan kategori mana yang paling laku dan paling menguntungkan.")
+    page_header("Cuan Kategori 💰", "Pertanyaan 1: kategori/produk apa yang menghasilkan pendapatan tertinggi?")
+    top_n = st.slider("Tampilkan Top", 5, 20, 10)
+    top = cat_tbl.head(top_n)
 
-    c1, c2 = st.columns([1, 1])
-    metric = c1.radio("Urutkan berdasarkan", ["Omzet", "Jumlah terjual", "Jumlah pesanan"], horizontal=True)
-    top_n = c2.slider("Tampilkan Top", 3, 15, 8)
-
-    agg = filtered.groupby("_product").agg(
-        omzet=("_revenue", "sum"), qty=("_quantity", "sum"),
-        pesanan=(order_col, "nunique") if order_col else ("_revenue", "size"),
-        _category=("_category", lambda s: s.mode().iat[0] if len(s.mode()) else ""),
-    ).reset_index().rename(columns={"index": "_product"})
-    if "_product" not in agg.columns:
-        agg = agg.rename(columns={agg.columns[0]: "_product"})
-    mcol = {"Omzet": "omzet", "Jumlah terjual": "qty", "Jumlah pesanan": "pesanan"}[metric]
-
-    left, right = st.columns([1, 1.2])
+    left, right = st.columns([1.15, 1])
     with left:
-        card_open(f"Produk Terlaris — {metric}")
-        product_list(
-            agg, mcol, top_n, as_money=(mcol == "omzet"),
-            sub_col=("qty", lambda v: f"{format_int(v)} terjual") if mcol != "qty" else ("omzet", lambda v: format_short(v)),
-        )
-        card_close()
-
+        box = card("Omzet per Kategori", f"Top {top_n} kategori · mode: {alloc_mode.lower()}")
+        with box:
+            show(hbar(top, "omzet", "kategori", VIOLET, format_short), "cuan_bar")
     with right:
-        card_open("Omzet per Kategori", "Klik legenda untuk menyembunyikan kategori")
-        cat = filtered.groupby("_category", as_index=False)["_revenue"].sum().sort_values("_revenue", ascending=False).head(10)
-        fig = px.bar(cat.sort_values("_revenue"), x="_revenue", y="_category", orientation="h",
-                     color_discrete_sequence=[BLUE])
-        fig.update_yaxes(ticktext=[shorten(c, 24) for c in cat.sort_values("_revenue")["_category"]],
-                         tickvals=cat.sort_values("_revenue")["_category"])
-        st.plotly_chart(style_fig(fig, 340), width="stretch")
-        card_close()
+        box = card("Pareto 80/20", "Berapa kategori yang menyumbang mayoritas omzet? (angka di sumbu X = peringkat)")
+        with box:
+            n_show = min(len(cat_tbl), 15)
+            p = cat_tbl.head(n_show).copy()
+            p["rank"] = range(1, n_show + 1)
+            p["cum"] = cat_tbl["share"].cumsum().head(n_show)
+            n80 = int((cat_tbl["share"].cumsum() < 80).sum() + 1)
+            fig = make_subplots(specs=[[{"secondary_y": True}]])
+            fig.add_trace(go.Bar(x=p["rank"], y=p["omzet"], name="Omzet", marker_color=VIOLET, customdata=p["kategori"],
+                                 hovertemplate="#%{x} %{customdata}<br>%{y:,.0f}<extra></extra>"), secondary_y=False)
+            fig.add_trace(go.Scatter(x=p["rank"], y=p["cum"], name="Kumulatif %", mode="lines+markers",
+                                     line=dict(color=PINK, width=3)), secondary_y=True)
+            fig.add_hline(y=80, line_dash="dot", line_color=MUTED, secondary_y=True)
+            style_fig(fig, 340, legend=True)
+            fig.update_xaxes(dtick=1)
+            fig.update_yaxes(range=[0, 105], ticksuffix="%", secondary_y=True, showgrid=False)
+            fig.update_yaxes(tickformat=".2s", secondary_y=False)
+            show(fig, "cuan_pareto")
+            st.caption(f"💡 {n80} dari {len(cat_tbl)} kategori sudah menyumbang ±80% omzet.")
 
-        card_open("Harga vs Volume", "Tiap titik = satu produk; ukuran = omzet")
-        sc = agg.head(80).copy()
-        sc["harga_rata2"] = sc["omzet"] / sc["qty"].replace(0, 1)
-        fig = px.scatter(sc, x="qty", y="harga_rata2", size="omzet", color="_category", hover_name="_product",
-                         color_discrete_sequence=PALETTE, size_max=38)
-        fig.update_xaxes(title="Jumlah terjual")
-        fig.update_yaxes(title="Harga rata-rata")
-        st.plotly_chart(style_fig(fig, 300, legend=False), width="stretch")
-        card_close()
+    l2, r2 = st.columns([1, 1])
+    with l2:
+        box = card("Naik Daun vs Turun Kasta 🎢", "Perubahan omzet bulan terakhir vs bulan sebelumnya (Top 10 kategori)")
+        with box:
+            mc = ex_sales.dropna(subset=["month"]).groupby(["month", "kategori"])["omzet_alloc"].sum().reset_index()
+            months_ok = monthly_ok["month"].tolist()
+            if len(months_ok) >= 2:
+                m_last, m_prev = months_ok[-1], months_ok[-2]
+                pv = mc.pivot(index="kategori", columns="month", values="omzet_alloc").fillna(0)
+                if m_last in pv.columns and m_prev in pv.columns:
+                    top_cats = cat_tbl.head(10)["kategori"].tolist()
+                    g = pv.loc[pv.index.isin(top_cats), [m_prev, m_last]].copy()
+                    g = g[g[m_prev] > 0]
+                    g["growth"] = (g[m_last] - g[m_prev]) / g[m_prev] * 100
+                    g = g.reset_index()
+                    st.caption(f"{month_label(m_last)} dibanding {month_label(m_prev)}")
+                    show(hbar(g, "growth", "kategori", LIME, lambda v: f"{v:+.0f}%", sign_colors=True, pad=1.35), "cuan_growth")
+                else:
+                    st.info("Data bulanan kategori belum cukup.")
+            else:
+                st.info("Butuh minimal 2 bulan penuh untuk membandingkan.")
+    with r2:
+        box = card("Duo Maut 🤝", "Pasangan kategori yang paling sering dibeli dalam satu pesanan (ide bundling)")
+        with box:
+            multi = sales[sales["product_categories"].str.contains(",", regex=False)]
+            cnt = Counter()
+            for s in multi["product_categories"]:
+                cats = sorted({c.strip() for c in s.split(",") if c.strip()})
+                for pair in combinations(cats, 2):
+                    cnt[pair] += 1
+            if cnt:
+                pairs = pd.DataFrame(
+                    [(f"{a} + {b}", v) for (a, b), v in cnt.most_common(10)], columns=["pasangan", "pesanan"]
+                )
+                show(hbar(pairs, "pesanan", "pasangan", PINK, format_int, pad=1.2), "cuan_pairs")
+            else:
+                st.info("Tidak ada pesanan multi-kategori pada filter ini.")
 
-    card_open("Tabel Produk Lengkap")
-    tbl = agg.sort_values(mcol, ascending=False).rename(columns={
-        "_product": "Produk", "_category": "Kategori", "omzet": "Omzet", "qty": "Terjual", "pesanan": "Pesanan"})
-    st.dataframe(tbl[["Produk", "Kategori", "Omzet", "Terjual", "Pesanan"]], width="stretch", hide_index=True, height=300)
-    st.download_button("Unduh Tabel Produk (CSV)", tbl.to_csv(index=False).encode("utf-8-sig"), "ringkasan_produk.csv", "text/csv")
-    card_close()
+    box = card("Tabel Kategori Lengkap", "Unit = estimasi (total_qty dibagi rata untuk pesanan multi-kategori)")
+    with box:
+        tbl = cat_tbl.rename(columns={
+            "kategori": "Kategori", "omzet": "Omzet", "share": "Kontribusi (%)", "pesanan": "Pesanan",
+            "unit": "Estimasi Unit", "omzet_per_pesanan": "Omzet / Pesanan"})
+        tbl = tbl[["Kategori", "Omzet", "Kontribusi (%)", "Pesanan", "Estimasi Unit", "Omzet / Pesanan"]].copy()
+        tbl["Kontribusi (%)"] = tbl["Kontribusi (%)"].round(1)
+        tbl["Estimasi Unit"] = tbl["Estimasi Unit"].round(0)
+        tbl["Omzet"] = tbl["Omzet"].round(0)
+        tbl["Omzet / Pesanan"] = tbl["Omzet / Pesanan"].round(0)
+        st.dataframe(tbl, width="stretch", hide_index=True, height=320)
+        st.download_button("Unduh Tabel Kategori (CSV)", tbl.to_csv(index=False).encode("utf-8-sig"),
+                           "ringkasan_kategori.csv", "text/csv")
+
 
 # =========================================================
-# HALAMAN 3: WILAYAH
+# HALAMAN 3: TREN PENJUALAN  (Pertanyaan 2)
 # =========================================================
 elif page == PAGES[2]:
-    page_header("Performa Wilayah", "Bandingkan omzet antar kabupaten/kota dan lihat kategori favorit tiap wilayah.")
+    page_header("Tren Penjualan 📈", "Pertanyaan 2: bagaimana tren penjualan setiap tahun?")
 
-    n_city = st.slider("Jumlah wilayah ditampilkan", 5, 20, 10)
-    left, right = st.columns([1.2, 1])
+    left, right = st.columns([1, 1.3])
     with left:
-        card_open("Wilayah dengan Omzet Terbanyak")
-        tc = filtered.groupby("_city", as_index=False)["_revenue"].sum().sort_values("_revenue", ascending=False).head(n_city)
-        tc = tc.sort_values("_revenue")
-        fig = px.bar(tc, x="_revenue", y="_city", orientation="h", color_discrete_sequence=[GREEN],
-                     text=tc["_revenue"].map(format_short))
-        fig.update_traces(textposition="outside", cliponaxis=False)
-        st.plotly_chart(style_fig(fig, 420), width="stretch")
-        card_close()
-
+        box = card("Omzet per Tahun", "Tahun dengan bulan data lebih sedikit tidak sebanding langsung, lihat tabel di bawah")
+        with box:
+            if yearly.empty:
+                st.info("Data tanggal tidak tersedia.")
+            else:
+                y = yearly.copy()
+                y["tahun"] = y["year"].astype(str)
+                fig = go.Figure(go.Bar(
+                    x=y["tahun"], y=y["omzet"], marker_color=[PALETTE[i % len(PALETTE)] for i in range(len(y))],
+                    text=y["omzet"].map(format_short), textposition="outside", cliponaxis=False))
+                fig.update_yaxes(range=[0, y["omzet"].max() * 1.2], showticklabels=False)
+                show(style_fig(fig, 320), "tren_year")
     with right:
-        card_open("Kategori Terlaris per Wilayah")
-        base = df if selected_year == "Semua Tahun" else df[df["_year"] == selected_year]
-        city_list = sorted(base["_city"].unique().tolist())
-        default_idx = next((i for i, c in enumerate(city_list) if "bogor" in c.lower()), 0)
-        pick_city = st.selectbox("Pilih wilayah", city_list, index=default_idx)
-        cd = base[base["_city"] == pick_city].groupby("_category", as_index=False)["_quantity"].sum()
-        cd = cd.sort_values("_quantity", ascending=False).head(6)
-        if not cd.empty:
-            fig = px.pie(cd, names="_category", values="_quantity", hole=.55, color_discrete_sequence=PALETTE)
-            fig.update_traces(textposition="inside", textinfo="percent")
-            st.plotly_chart(style_fig(fig, 340, legend=True), width="stretch")
-        else:
-            st.info("Tidak ada data untuk wilayah ini.")
-        card_close()
+        box = card("Tahun vs Tahun per Bulan", "Satu garis = satu tahun, supaya pola musiman kelihatan")
+        with box:
+            f = sales.dropna(subset=["dt"]).copy()
+            if f.empty:
+                st.info("Data tanggal tidak tersedia.")
+            else:
+                f["mon"] = f["dt"].dt.month
+                yy = f.groupby(["year", "mon"])["total_pembayaran"].sum().reset_index()
+                fig = go.Figure()
+                for i, (yr, grp) in enumerate(yy.groupby("year")):
+                    fig.add_trace(go.Scatter(
+                        x=[MONTHS_ID[m - 1] for m in grp["mon"]], y=grp["total_pembayaran"], name=str(int(yr)),
+                        mode="lines+markers", line=dict(color=PALETTE[i % len(PALETTE)], width=3)))
+                fig.update_xaxes(categoryorder="array", categoryarray=MONTHS_ID)
+                fig.update_yaxes(tickformat=".2s")
+                show(style_fig(fig, 320, legend=True), "tren_yoy")
 
-    card_open("Peta Panas: Kategori × Wilayah", "Omzet 8 wilayah teratas dan 8 kategori teratas")
-    top_c = filtered.groupby("_city")["_revenue"].sum().nlargest(8).index
-    top_k = filtered.groupby("_category")["_revenue"].sum().nlargest(8).index
-    hm = filtered[filtered["_city"].isin(top_c) & filtered["_category"].isin(top_k)]
-    if not hm.empty:
-        pv = hm.pivot_table(index="_category", columns="_city", values="_revenue", aggfunc="sum", fill_value=0)
-        fig = px.imshow(pv, aspect="auto", color_continuous_scale=["#EEF2FF", BLUE])
-        st.plotly_chart(style_fig(fig, 340), width="stretch")
-    else:
-        st.info("Data tidak cukup untuk peta panas.")
-    card_close()
+    box = card("Tabel Perbandingan Tahunan", "Pembanding yang adil = omzet rata-rata per bulan aktif")
+    with box:
+        if not yearly.empty:
+            t = yearly.rename(columns={
+                "year": "Tahun", "pesanan": "Pesanan", "omzet": "Omzet", "bulan_aktif": "Bulan Data",
+                "omzet_per_bulan": "Omzet / Bulan", "growth_per_bulan": "Growth Omzet/Bulan (%)"}).copy()
+            t["Omzet"] = t["Omzet"].round(0)
+            t["Omzet / Bulan"] = t["Omzet / Bulan"].round(0)
+            t["Growth Omzet/Bulan (%)"] = t["Growth Omzet/Bulan (%)"].round(1)
+            st.dataframe(t, width="stretch", hide_index=True)
+            tiny = yearly[yearly["bulan_aktif"] <= 2]
+            if len(tiny):
+                st.caption("⚠️ Tahun dengan ≤2 bulan data sebaiknya dibaca hati-hati; kemungkinan hanya sisa transaksi di batas periode.")
+
+    box = card("Ikhtisar Penjualan", "Omzet (atas) dan jumlah pesanan (bawah) pada rentang pilihanmu")
+    with box:
+        gran = st.radio("Rentang", ["Harian", "Mingguan", "Bulanan"], index=2, horizontal=True, label_visibility="collapsed")
+        freq = {"Harian": "D", "Mingguan": "W", "Bulanan": "MS"}[gran]
+        ts = sales.dropna(subset=["dt"]).set_index("dt")
+        if ts.empty:
+            st.info("Data tanggal tidak tersedia.")
+        else:
+            agg = ts.groupby(pd.Grouper(freq=freq)).agg(
+                omzet=("total_pembayaran", "sum"), pesanan=("order_id", "nunique")).reset_index()
+            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.08, row_heights=[0.62, 0.38])
+            fig.add_trace(go.Scatter(x=agg["dt"], y=agg["omzet"], name="Omzet", mode="lines+markers",
+                                     line=dict(color=VIOLET, width=3, shape="spline"), marker=dict(size=5),
+                                     fill="tozeroy", fillcolor="rgba(124,58,237,.12)"), row=1, col=1)
+            fig.add_trace(go.Bar(x=agg["dt"], y=agg["pesanan"], name="Pesanan", marker_color=ORANGE), row=2, col=1)
+            style_fig(fig, 460, legend=True)
+            fig.update_yaxes(tickformat=".2s", row=1, col=1)
+            show(fig, "tren_main")
+
+    l2, r2 = st.columns(2)
+    with l2:
+        box = card("Pertumbuhan Bulan ke Bulan", "Hijau = naik, merah = turun (bulan penuh saja)")
+        with box:
+            if len(monthly_ok) >= 2:
+                g = monthly_ok.copy()
+                g["growth"] = g["omzet"].pct_change() * 100
+                g = g.dropna(subset=["growth"])
+                fig = go.Figure(go.Bar(
+                    x=[month_label(m) for m in g["month"]], y=g["growth"],
+                    marker_color=[LIME if v >= 0 else RED for v in g["growth"]],
+                    text=[f"{v:+.0f}%" for v in g["growth"]], textposition="outside", cliponaxis=False))
+                lo, hi = float(g["growth"].min()), float(g["growth"].max())
+                fig.update_yaxes(range=[min(0, lo * 1.3) - 5, max(0, hi * 1.3) + 5], ticksuffix="%")
+                fig.update_xaxes(tickangle=-45)
+                show(style_fig(fig, 340), "tren_mom")
+            else:
+                st.info("Butuh minimal 2 bulan penuh.")
+    with r2:
+        box = card("Proyeksi Kasar 3 Bulan ke Depan 🔮", "Garis tren linear dari ≤6 bulan penuh terakhir. Bukan ramalan pasti!")
+        with box:
+            if len(monthly_ok) >= 3:
+                recent = monthly_ok.tail(6).reset_index(drop=True)
+                xs = np.arange(len(recent))
+                slope, intercept = np.polyfit(xs, recent["omzet"].values, 1)
+                fut_x = np.arange(len(recent), len(recent) + 3)
+                fut_months = [recent["month"].iloc[-1] + pd.DateOffset(months=i + 1) for i in range(3)]
+                fut_y = np.maximum(slope * fut_x + intercept, 0)
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=monthly_ok["month"], y=monthly_ok["omzet"], name="Aktual", mode="lines+markers",
+                                         line=dict(color=VIOLET, width=3)))
+                fig.add_trace(go.Scatter(x=[recent["month"].iloc[-1]] + fut_months,
+                                         y=[recent["omzet"].iloc[-1]] + list(fut_y), name="Proyeksi",
+                                         mode="lines+markers", line=dict(color=PINK, width=3, dash="dash")))
+                fig.update_yaxes(tickformat=".2s")
+                show(style_fig(fig, 340, legend=True), "tren_forecast")
+                arah = "naik" if slope >= 0 else "turun"
+                st.caption(f"Tren {arah} ±{format_short(abs(slope))} per bulan. Proyeksi {month_label(fut_months[0])}: {format_short(fut_y[0])}.")
+            else:
+                st.info("Butuh minimal 3 bulan penuh untuk proyeksi.")
+
 
 # =========================================================
-# HALAMAN 4: DISKON & PEMBATALAN
+# HALAMAN 4: KABUPATEN BOGOR  (Pertanyaan 3)
 # =========================================================
 elif page == PAGES[3]:
-    page_header("Diskon & Pembatalan", "Seberapa besar diskon menggerus omzet dan mengapa pesanan dibatalkan.")
+    page_header("Kabupaten Bogor 📍", "Pertanyaan 3: kategori apa yang paling banyak dibeli di wilayah ini? (bisa ganti wilayah)")
 
-    disc_total = filtered["_discount"].sum()
-    k1, k2, k3, k4 = st.columns(4)
-    kpi(k1, BLUE, "Total Diskon", format_short(disc_total))
-    kpi(k2, YELLOW, "Rata-rata Diskon", format_short(avg_discount))
-    kpi(k3, GREEN, "Diskon / Omzet", f"{(disc_total / total_rev * 100) if total_rev else 0:.1f}%")
-    kpi(k4, RED, "Tingkat Pembatalan", f"{cancel_rate:.1f}%")
+    c1, c2, c3 = st.columns([1.3, 1.2, 1])
+    city_list = sorted(sales_nat["kota_kabupaten"].unique().tolist())
+    pick = c1.selectbox("Pilih wilayah", city_list, index=city_list.index(default_city(city_list)))
+    metric = c2.radio("Ukur berdasarkan", ["Jumlah pesanan", "Estimasi unit", "Omzet"], horizontal=True)
+    topn = c3.slider("Tampilkan Top", 5, 15, 10)
+
+    loc = sales_nat[sales_nat["kota_kabupaten"] == pick]
+    if loc.empty:
+        st.warning("Tidak ada transaksi untuk wilayah ini pada filter sekarang.")
+        st.stop()
+    ex_loc = explode_categories(loc, alloc_mode)
+    ex_nat = explode_categories(sales_nat, alloc_mode)
+    loc_tbl = category_table(ex_loc)
+    nat_tbl = category_table(ex_nat)
+    mcol = {"Jumlah pesanan": "pesanan", "Estimasi unit": "unit", "Omzet": "omzet"}[metric]
+    mfmt = format_short if metric == "Omzet" else format_int
+
+    rank_city = sales_nat.groupby("kota_kabupaten")["order_id"].nunique().sort_values(ascending=False)
+    rank_pos = int(list(rank_city.index).index(pick) + 1)
+    k = st.columns(4)
+    kpi(k[0], "🧾", "#EDE9FE", "Pesanan Selesai", format_int(loc["order_id"].nunique()), f"peringkat #{rank_pos} dari {len(rank_city)} wilayah")
+    kpi(k[1], "💸", "#FCE7F3", "Omzet", format_short(loc["total_pembayaran"].sum()))
+    kpi(k[2], "📦", "#CFFAFE", "Barang Terjual", format_int(loc["total_qty"].sum()), f"{int(loc['total_qty'].isna().sum())} baris tanpa qty")
+    best_cat = loc_tbl.sort_values("pesanan", ascending=False).iloc[0]["kategori"]
+    kpi(k[3], "👑", "#FFEDD5", "Kategori Terlaris", esc(shorten(best_cat, 22)), "berdasarkan jumlah pesanan")
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
 
     left, right = st.columns(2)
     with left:
-        card_open("Rasio Diskon terhadap Omzet per Kategori", "Persentase, supaya skala antar kategori sebanding")
-        if discount_col and (filtered["_discount"] > 0).any():
-            dc = filtered.groupby("_category")[["_revenue", "_discount"]].sum()
-            dc["rasio"] = dc["_discount"] / dc["_revenue"].replace(0, pd.NA) * 100
-            dc = dc.dropna().sort_values("rasio", ascending=False).head(10).reset_index().sort_values("rasio")
-            fig = px.bar(dc, x="rasio", y="_category", orientation="h", color_discrete_sequence=[YELLOW],
-                         text=dc["rasio"].map(lambda v: f"{v:.1f}%"))
-            fig.update_traces(textposition="outside", cliponaxis=False)
-            st.plotly_chart(style_fig(fig, 340), width="stretch")
-        else:
-            st.info("Data diskon tidak tersedia.")
-        card_close()
-
+        box = card(f"Kategori Terlaris — {metric}", f"Top {topn} di {pick.title()}")
+        with box:
+            show(hbar(loc_tbl.head(0).pipe(lambda _: loc_tbl.sort_values(mcol, ascending=False).head(topn)),
+                      mcol, "kategori", VIOLET, mfmt), "bogor_bar")
     with right:
-        card_open("Alasan Pembatalan Terbanyak")
-        canceled = filtered[filtered["_is_cancel"]]
-        if not canceled.empty and cancel_reason_col:
-            rs = canceled["_cancel_reason"].value_counts().head(8).reset_index()
-            rs.columns = ["Alasan", "Jumlah"]
-            rs = rs.sort_values("Jumlah")
-            fig = px.bar(rs, x="Jumlah", y="Alasan", orientation="h", color_discrete_sequence=[RED])
-            st.plotly_chart(style_fig(fig, 340), width="stretch")
-        else:
-            st.info("Tidak ada data pembatalan.")
-        card_close()
+        box = card("Indeks Kegemaran 🔥", "Seberapa lebih doyan wilayah ini dibanding rata-rata nasional (1× = sama; >1× = lebih doyan)")
+        with box:
+            loc_share = loc_tbl.set_index("kategori")["pesanan"] / loc_tbl["pesanan"].sum()
+            nat_share = nat_tbl.set_index("kategori")["pesanan"] / nat_tbl["pesanan"].sum()
+            idx = (loc_share / nat_share).dropna()
+            idx = idx[loc_tbl.set_index("kategori").loc[idx.index, "pesanan"] >= 10]
+            idx_df = idx.sort_values(ascending=False).head(topn).reset_index()
+            idx_df.columns = ["kategori", "indeks"]
+            if idx_df.empty:
+                st.info("Belum cukup data (minimal 10 pesanan per kategori).")
+            else:
+                fig = hbar(idx_df, "indeks", "kategori", PINK, lambda v: f"{v:.1f}×", pad=1.25)
+                fig.add_vline(x=1, line_dash="dash", line_color=MUTED)
+                show(fig, "bogor_index")
+                st.caption("Hanya kategori dengan ≥10 pesanan di wilayah ini yang dihitung.")
+
+    l2, r2 = st.columns([1.1, 1])
+    with l2:
+        box = card("Unit Pasti: Pesanan 1 Kategori", "Jumlah barang yang akurat per kategori (pesanan campuran dikeluarkan)")
+        with box:
+            single = loc[~loc["product_categories"].str.contains(",", regex=False) & loc["total_qty"].notna()]
+            if single.empty:
+                st.info("Tidak ada pesanan satu kategori.")
+            else:
+                s = single.groupby("product_categories").agg(
+                    total_barang=("total_qty", "sum"), pesanan=("order_id", "nunique")).reset_index()
+                s = s.sort_values("total_barang", ascending=False).head(topn)
+                s.columns = ["Kategori", "Total Barang", "Pesanan"]
+                s["Total Barang"] = s["Total Barang"].round(0)
+                st.dataframe(s, width="stretch", hide_index=True, height=360)
+    with r2:
+        box = card("Peringkat Wilayah", "10 wilayah dengan pesanan terbanyak (wilayah pilihanmu disorot pink)")
+        with box:
+            rc = rank_city.head(10).reset_index()
+            rc.columns = ["wilayah", "pesanan"]
+            if pick not in rc["wilayah"].values:
+                rc = pd.concat([rc.head(9), pd.DataFrame({"wilayah": [pick], "pesanan": [rank_city[pick]]})])
+            show(hbar(rc, "pesanan", "wilayah", CYAN, format_int, highlight=pick, height=400), "bogor_rank")
+
+
+# =========================================================
+# HALAMAN 5: JAM & TANGGAL CUAN
+# =========================================================
+elif page == PAGES[4]:
+    page_header("Jam & Tanggal Cuan ⏰", "Kapan pembeli paling rajin checkout? Cek prime time, tanggal kembar, dan efek gajian.")
+    dd = sales.dropna(subset=["dt"]).copy()
+    if dd.empty:
+        st.info("Data tanggal tidak tersedia.")
+        st.stop()
+
+    box = card("Peta Panas Prime Time", "Jumlah pesanan berdasarkan hari × jam (warna makin pekat = makin ramai)")
+    with box:
+        hm = dd.groupby(["weekday", "hour"])["order_id"].nunique().unstack(fill_value=0)
+        hm = hm.reindex(index=range(7), columns=range(24), fill_value=0)
+        fig = go.Figure(go.Heatmap(
+            z=hm.values, x=[f"{h:02d}" for h in range(24)], y=DAYS_ID,
+            colorscale=[[0, "#F5F3FF"], [0.5, "#C084FC"], [1, "#DB2777"]],
+            colorbar=dict(title="Pesanan", thickness=12),
+            hovertemplate="%{y} jam %{x}.00<br>%{z} pesanan<extra></extra>"))
+        style_fig(fig, 340)
+        fig.update_yaxes(autorange="reversed", showgrid=False)
+        fig.update_xaxes(title_text="Jam", dtick=1)
+        show(fig, "jam_heat")
+        top_h = int(dd.groupby("hour")["order_id"].nunique().idxmax())
+        top_d = int(dd.groupby("weekday")["order_id"].nunique().idxmax())
+        st.caption(f"💡 Puncak pesanan di jam {top_h:02d}.00 dan hari {DAYS_ID[top_d]}. Cocok buat jadwal flash sale atau posting promo.")
+
+    per_day = dd.groupby(dd["dt"].dt.normalize()).agg(
+        pesanan=("order_id", "nunique"), omzet=("total_pembayaran", "sum")).reset_index()
+    per_day.columns = ["tgl", "pesanan", "omzet"]
+    per_day["day"] = per_day["tgl"].dt.day
+    per_day["mon"] = per_day["tgl"].dt.month
+    per_day["grup"] = np.where(
+        per_day["day"] == per_day["mon"], "Tanggal kembar",
+        np.where((per_day["day"] >= 25) | (per_day["day"] <= 5), "Gajian (25–5)", "Tanggal biasa"))
+
+    l, r = st.columns(2)
+    with l:
+        box = card("Efek Tanggal Kembar & Gajian 💸", "Rata-rata pesanan per hari menurut jenis tanggal")
+        with box:
+            g = per_day.groupby("grup").agg(rata_pesanan=("pesanan", "mean"), hari=("tgl", "count")).reset_index()
+            cmap = {"Tanggal kembar": PINK, "Gajian (25–5)": ORANGE, "Tanggal biasa": VIOLET}
+            fig = go.Figure(go.Bar(
+                x=g["grup"], y=g["rata_pesanan"], marker_color=[cmap[v] for v in g["grup"]],
+                text=[f"{v:.0f}" for v in g["rata_pesanan"]], textposition="outside", cliponaxis=False,
+                customdata=g["hari"], hovertemplate="%{x}<br>%{y:.1f} pesanan/hari (%{customdata} hari)<extra></extra>"))
+            fig.update_yaxes(range=[0, g["rata_pesanan"].max() * 1.25], showticklabels=False)
+            show(style_fig(fig, 320), "jam_twin")
+            if {"Tanggal kembar", "Tanggal biasa"} <= set(g["grup"]):
+                a = g.set_index("grup")["rata_pesanan"]
+                diff = (a["Tanggal kembar"] / a["Tanggal biasa"] - 1) * 100
+                st.caption(f"💡 Tanggal kembar rata-rata {diff:+.0f}% dibanding tanggal biasa.")
+    with r:
+        box = card("Pesanan per Tanggal dalam Bulan", "Rata-rata pesanan per hari menurut tanggal (oranye = periode gajian)")
+        with box:
+            dm = per_day.groupby("day")["pesanan"].mean().reset_index()
+            fig = go.Figure(go.Bar(
+                x=dm["day"], y=dm["pesanan"],
+                marker_color=[ORANGE if (d >= 25 or d <= 5) else VIOLET for d in dm["day"]],
+                hovertemplate="Tanggal %{x}<br>%{y:.1f} pesanan<extra></extra>"))
+            fig.update_xaxes(dtick=1, tickangle=0)
+            show(style_fig(fig, 320), "jam_dom")
+
+    box = card("Hari Terbaik dalam Seminggu", "Total omzet per hari")
+    with box:
+        wd = dd.groupby("weekday")["total_pembayaran"].sum().reindex(range(7), fill_value=0).reset_index()
+        wd["hari"] = [DAYS_ID[i] for i in wd["weekday"]]
+        fig = go.Figure(go.Bar(
+            x=wd["hari"], y=wd["total_pembayaran"], marker_color=PALETTE[: 7] if len(PALETTE) >= 7 else VIOLET,
+            text=wd["total_pembayaran"].map(format_short), textposition="outside", cliponaxis=False))
+        fig.update_yaxes(range=[0, wd["total_pembayaran"].max() * 1.2], showticklabels=False)
+        show(style_fig(fig, 300), "jam_wd")
+
+
+# =========================================================
+# HALAMAN 6: BAYAR, KIRIM & BATAL
+# =========================================================
+elif page == PAGES[5]:
+    page_header("Bayar, Kirim & Batal 💳", "Metode bayar favorit, opsi pengiriman, dan kenapa pesanan batal.")
+    disc_total = sales["total_diskon"].sum()
+    cod_share = base["is_cod"].mean() * 100 if len(base) else 0
+    k = st.columns(4)
+    kpi(k[0], "🙅", "#FEE2E2", "Tingkat Batal", format_pct(cancel_rate), f"{format_int(base['is_batal'].sum())} pesanan batal")
+    kpi(k[1], "🏷️", "#FCE7F3", "Total Diskon", format_short(disc_total))
+    kpi(k[2], "🧮", "#EDE9FE", "Diskon / Omzet", format_pct(disc_total / total_rev * 100 if total_rev else 0))
+    kpi(k[3], "💵", "#FFEDD5", "Pesanan COD", format_pct(cod_share), "dari semua pesanan")
+    st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)
+
+    def cancel_by(col, min_n=30):
+        g = base.groupby(col).agg(total=("order_id", "nunique"), batal=("is_batal", "sum")).reset_index()
+        g = g[g["total"] >= min_n].copy()
+        g["rate"] = g["batal"] / g["total"] * 100
+        return g
+
+    l, r = st.columns(2)
+    with l:
+        box = card("Metode Pembayaran Favorit", "Porsi pesanan penjualan valid")
+        with box:
+            pm = sales["metode_pembayaran"].value_counts()
+            if len(pm) > 6:
+                pm = pd.concat([pm.head(6), pd.Series({"Lainnya": pm.iloc[6:].sum()})])
+            pm_df = pm.reset_index()
+            pm_df.columns = ["Metode", "Jumlah"]
+            fig = px.pie(pm_df, names="Metode", values="Jumlah", hole=0.55, color_discrete_sequence=PALETTE)
+            fig.update_traces(textinfo="percent", textposition="inside", sort=False)
+            fig.update_layout(uniformtext_minsize=11, uniformtext_mode="hide")
+            style_fig(fig, 360, legend=True)
+            fig.update_layout(legend=dict(orientation="h", yanchor="top", y=-0.05, xanchor="left", x=0, font=dict(size=11)))
+            show(fig, "bayar_pie")
+    with r:
+        box = card("Tingkat Batal per Metode Bayar", "Hanya metode dengan ≥30 pesanan")
+        with box:
+            cb = cancel_by("metode_pembayaran")
+            if cb.empty:
+                st.info("Data belum cukup.")
+            else:
+                show(hbar(cb, "rate", "metode_pembayaran", RED, lambda v: f"{v:.1f}%", pad=1.25), "bayar_cancel")
 
     l2, r2 = st.columns(2)
     with l2:
-        card_open("Tingkat Pembatalan per Bulan")
-        mc = filtered.dropna(subset=["_month"]).groupby("_month")["_is_cancel"].mean().mul(100).reset_index()
-        if not mc.empty:
-            fig = px.line(mc, x="_month", y="_is_cancel", markers=True)
-            fig.update_traces(line_color=RED, line_width=3)
-            fig.update_yaxes(ticksuffix="%")
-            st.plotly_chart(style_fig(fig, 280), width="stretch")
-        card_close()
+        box = card("Tingkat Batal per Opsi Pengiriman", "Hanya opsi dengan ≥30 pesanan")
+        with box:
+            cs = cancel_by("opsi_pengiriman")
+            if cs.empty:
+                st.info("Data belum cukup.")
+            else:
+                show(hbar(cs, "rate", "opsi_pengiriman", ORANGE, lambda v: f"{v:.1f}%", pad=1.25), "kirim_cancel")
     with r2:
-        card_open("Distribusi Status Pesanan")
-        sd = filtered["_status"].value_counts().reset_index()
-        sd.columns = ["Status", "Jumlah"]
-        fig = px.pie(sd, names="Status", values="Jumlah", hole=.55, color_discrete_sequence=PALETTE)
-        st.plotly_chart(style_fig(fig, 280, legend=True), width="stretch")
-        card_close()
+        box = card("Alasan Pembatalan Terbanyak", "Top 8 dari pesanan batal")
+        with box:
+            cr = base[base["is_batal"]]["alasan_pembatalan"].value_counts().head(8).reset_index()
+            cr.columns = ["alasan", "jumlah"]
+            if cr.empty:
+                st.info("Tidak ada data pembatalan.")
+            else:
+                cr["alasan"] = cr["alasan"].map(lambda v: shorten(v, 44))
+                show(hbar(cr, "jumlah", "alasan", PINK, format_int, pad=1.2), "batal_reason")
+
+    box = card("Tingkat Batal per Bulan")
+    with box:
+        mc = base.dropna(subset=["month"]).groupby("month")["is_batal"].mean().mul(100).reset_index()
+        if mc.empty:
+            st.info("Data tanggal tidak tersedia.")
+        else:
+            fig = go.Figure(go.Scatter(x=mc["month"], y=mc["is_batal"], mode="lines+markers",
+                                       line=dict(color=RED, width=3), marker=dict(size=7)))
+            fig.update_yaxes(ticksuffix="%")
+            show(style_fig(fig, 300), "batal_month")
+
 
 # =========================================================
-# HALAMAN 5: DATA TRANSAKSI
+# HALAMAN 7: DATA TRANSAKSI
 # =========================================================
 else:
-    page_header("Data Transaksi", "Telusuri, cari, dan unduh data hasil filter.")
-
-    card_open("Detail Data Penjualan")
-    q = st.text_input("Cari transaksi", placeholder="Ketik nama produk, wilayah, atau ID pesanan…")
-    visible = filtered.drop(columns=[c for c in filtered.columns if c.startswith("_") and c not in ("_date",)], errors="ignore")
-    if q.strip():
-        mask = visible.astype(str).apply(lambda col: col.str.contains(q.strip(), case=False, na=False, regex=False)).any(axis=1)
-        visible = visible[mask]
-    st.caption(f"{format_int(len(visible))} baris ditampilkan dari {format_int(len(df))} total.")
-    st.dataframe(visible, width="stretch", height=460)
-    st.download_button("Unduh Data Hasil Filter (CSV)", visible.to_csv(index=False).encode("utf-8-sig"),
-                       "data_penjualan_terfilter.csv", "text/csv")
-    card_close()
+    page_header("Data Transaksi 🗂️", "Telusuri, cari, dan unduh data hasil filter.")
+    box = card("Detail Data Penjualan")
+    with box:
+        q = st.text_input("Cari transaksi", placeholder="Ketik kategori, wilayah, atau ID pesanan…")
+        cols = [c for c in [
+            "order_id", "dt", "product_categories", "total_qty", "total_pembayaran", "status_group", "kota_kabupaten",
+            "provinsi", "metode_pembayaran", "opsi_pengiriman", "total_diskon"] if c in sales.columns]
+        visible = sales[cols].rename(columns={"dt": "waktu_pesanan"})
+        if q.strip():
+            mask = visible.astype(str).apply(lambda s: s.str.contains(q.strip(), case=False, na=False, regex=False)).any(axis=1)
+            visible = visible[mask]
+        st.caption(f"{format_int(len(visible))} baris ditampilkan dari {format_int(len(sales))} baris penjualan.")
+        st.dataframe(visible, width="stretch", height=480, hide_index=True)
+        st.download_button("Unduh Data Hasil Filter (CSV)", visible.to_csv(index=False).encode("utf-8-sig"),
+                           "data_penjualan_terfilter.csv", "text/csv")
